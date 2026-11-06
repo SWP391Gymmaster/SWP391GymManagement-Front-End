@@ -8,28 +8,33 @@ import { coachIsFull, coachLoad } from '../../validation/classDuplicates'
 import { addDays, vnStamp } from '../../validation/classDates'
 import { EMPTY_CLASS_FORM, TERM_DATES, classToForm, isReopening, reopenForm } from '../../validation/classForm'
 import { codePrefix, MAX_CLASSES_PER_COACH, subjectDefaults } from '../../config/classDefaults'
-import { findByCode, nextFreeCode, suggestClasses } from '../../validation/classCode'
+import { normalizeCode } from '../../validation/roomRules'
+import { findByCode, isDuplicateCodeError, nextClassCode, suggestClasses } from '../../validation/classCode'
 import { STATUS, buildCatalog, classStarted } from '../../catalog/catalogRules'
 import { WEEKDAYS, parseWeekdays, patternProblems, previewSessions, serializeWeekdays } from '../../validation/sessionPattern'
 import { formatDate } from '../../store/utils'
 import '../../catalog.css'
 
 const timed = FEATURES.registrationTimes
-// Tạo mới: điền sẵn tiền tố mã và sĩ số mặc định theo bộ môn ban đầu.
-const fresh = () => ({ ...EMPTY_CLASS_FORM, classCode: codePrefix(EMPTY_CLASS_FORM.subject), capacity: subjectDefaults(EMPTY_CLASS_FORM.subject).capacity })
+// Tạo mới: mã lớp tự sinh theo bộ môn (CLS-YOGA-01...) và sĩ số mặc định theo bộ môn ban đầu.
+const fresh = classes => ({ ...EMPTY_CLASS_FORM, classCode: nextClassCode(EMPTY_CLASS_FORM.subject, classes), capacity: subjectDefaults(EMPTY_CLASS_FORM.subject).capacity })
 
 // Tạo mới (cls = null) hoặc sửa lớp. Kiểm tra ở FE trước, BE kiểm tra lại khi lưu.
-// Khi tạo mới, ô Mã lớp gợi ý các lớp đã có: lớp đã đóng → mở kỳ mới (chuyển sang sửa lớp đó), lớp khác → dùng làm mẫu.
+// Khi tạo mới, mã lớp tự sinh (ô khóa). Bấm "Đổi mã" để tự nhập; lúc đó ô Mã lớp gợi ý các lớp đã có:
+// lớp đã đóng → mở kỳ mới (chuyển sang sửa lớp đó), lớp khác → dùng làm mẫu (mã mới lại tự sinh).
 export default function ClassFormModal({ cls, onClose, onSaved }) {
-  const { users, rooms, classes, schedules, saveClass } = useStore()
+  const { users, rooms, classes, schedules, saveClass, refresh } = useStore()
   // Lớp đã kết thúc (cùng trạng thái "Đã đóng" như trang Danh sách lớp, kể cả lớp chỉ suy ngày từ buổi học).
   const endedOf = c => Boolean(c) && buildCatalog({ classes: [c], schedules })[0].status === 'closed'
   const [target, setTarget] = useState(cls) // lớp đang sửa; null = tạo mới
   const [reopen, setReopen] = useState(false) // đã xác nhận mở kỳ mới từ gợi ý mã lớp
   // Sửa lớp đã kết thúc: không nạp hạn đăng ký cũ (hạn cũ không dùng được cho kỳ mới).
-  const [form, setForm] = useState(() => cls ? classToForm(cls, { timed, ended: endedOf(cls) }) : fresh())
+  const [form, setForm] = useState(() => cls ? classToForm(cls, { timed, ended: endedOf(cls) }) : fresh(classes))
   // Ô mà manager đã tự sửa thì không tự điền đè khi đổi bộ môn (chỉ dùng khi tạo mới).
   const [touched, setTouched] = useState({ classCode: false, capacity: false })
+  // Mã tự sinh (ô khóa) khi tạo mới; false sau khi bấm "Đổi mã".
+  const [codeAuto, setCodeAuto] = useState(true)
+  const [codeConflict, setCodeConflict] = useState('') // mã vừa bị BE từ chối vì trùng
   const [original, setOriginal] = useState(() => cls ? classToForm(cls, { timed }) : null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -70,12 +75,11 @@ export default function ClassFormModal({ cls, onClose, onSaved }) {
     const next = { ...form, [key]: value }
     setForm(key === 'startDate' || key === 'endDate' || key === 'subject' ? checkCoach(next) : next)
   }
-  // Đổi bộ môn khi tạo mới: thay tiền tố cũ bằng tiền tố mới (giữ phần đã gõ phía sau); sĩ số theo môn nếu chưa tự sửa.
+  // Đổi bộ môn khi tạo mới: mã tự sinh lại theo bộ môn mới, trừ khi manager đã bấm "Đổi mã" và tự nhập; sĩ số theo môn nếu chưa tự sửa.
   const changeSubject = subject => {
     if (!creating) { set('subject', subject); return }
-    const oldPrefix = codePrefix(form.subject)
-    const classCode = !touched.classCode ? codePrefix(subject)
-      : form.classCode.toUpperCase().startsWith(oldPrefix) ? codePrefix(subject) + form.classCode.slice(oldPrefix.length) : form.classCode
+    const classCode = codeAuto || !touched.classCode ? nextClassCode(subject, classes) : form.classCode
+    setCodeConflict('')
     setForm(checkCoach({ ...form, subject, classCode, capacity: touched.capacity ? form.capacity : subjectDefaults(subject).capacity }))
   }
   // Gợi ý mã lớp (chỉ khi tạo mới), trạng thái lấy từ cùng logic với trang Danh sách lớp.
@@ -84,11 +88,19 @@ export default function ClassFormModal({ cls, onClose, onSaved }) {
   const showList = listOpen && suggestions.length > 0
   const existing = creating ? findByCode(form.classCode, classes) : null
   const closeList = () => { setListOpen(false); setActive(-1) }
-  // Dùng lớp có sẵn làm mẫu: chép thông tin, mã mới chưa ai dùng, để trống các ngày.
+  // Mở khóa ô mã để tự nhập (vẫn kiểm tra trùng và định dạng); quay lại mã tự sinh thì sinh lại theo bộ môn.
+  const unlockCode = () => { setCodeAuto(false); setTouched({ ...touched, classCode: false }) }
+  // skip: mã vừa bị BE từ chối (lớp tạo cùng lúc chưa có trong store) → bỏ qua khi sinh lại.
+  const autoCode = (skip = '') => {
+    setCodeAuto(true); setCodeConflict(''); setAskReopen(null); setError(''); closeList()
+    setTouched({ ...touched, classCode: false })
+    setForm({ ...form, classCode: nextClassCode(form.subject, skip ? [...classes, { classCode: skip }] : classes) })
+  }
+  // Dùng lớp có sẵn làm mẫu: chép thông tin, mã mới tự sinh theo bộ môn, để trống các ngày.
   const applyTemplate = source => {
     setCoachNote('')
-    setForm(checkCoach({ ...form, ...TERM_DATES, name: source.name || '', subject: source.subject || form.subject, description: source.description || '', capacity: source.capacity ?? form.capacity, coachId: source.coachId ?? '', sessionWeekdays: parseWeekdays(source.sessionWeekdays), classCode: nextFreeCode(source.classCode, classes) }))
-    setTouched({ classCode: true, capacity: true })
+    setForm(checkCoach({ ...form, ...TERM_DATES, name: source.name || '', subject: source.subject || form.subject, description: source.description || '', capacity: source.capacity ?? form.capacity, coachId: source.coachId ?? '', sessionWeekdays: parseWeekdays(source.sessionWeekdays), classCode: nextClassCode(source.subject || form.subject, classes) }))
+    setTouched({ classCode: false, capacity: true }); setCodeAuto(true); setCodeConflict('')
     setCopiedFrom(source.classCode); setAskReopen(null); setError(''); closeList()
   }
   // Mở kỳ mới: chuyển sang sửa chính lớp đó, giữ mã và thông tin cũ, xóa trắng các ngày và hạn đăng ký.
@@ -126,16 +138,32 @@ export default function ClassFormModal({ cls, onClose, onSaved }) {
     setBusy(true); setError('')
     // onSaved(lớp đã lưu, { created }): created = form mở ở chế độ tạo mới (kể cả dùng làm mẫu / mở kỳ mới từ gợi ý mã).
     const created = !cls
-    try { const saved = await saveClass(form); onClose(); onSaved?.(saved, { created }) } catch (err) { setError(err.message) } finally { setBusy(false) }
+    try { const saved = await saveClass(form); onClose(); onSaved?.(saved, { created }) } catch (err) {
+      // Trùng mã khi tạo (vd hai manager tạo cùng lúc): báo rõ và cho sinh mã khác; tải lại ngầm để thấy lớp vừa được tạo.
+      if (creating && isDuplicateCodeError(err)) {
+        setCodeConflict(normalizeCode(form.classCode))
+        setError(`Mã lớp ${normalizeCode(form.classCode)} vừa được một lớp khác sử dụng (có thể do tạo lớp cùng lúc). Bấm "Sinh mã mới" rồi lưu lại.`)
+        void refresh?.({ silent: true })
+      } else setError(err.message)
+    } finally { setBusy(false) }
   }
   const field = (key, label, props = {}) => <label>{label}<input value={form[key]} onChange={e => set(key, e.target.value)} {...props} /></label>
   const regType = timed ? 'datetime-local' : 'date'
   const regMin = timed ? current : current.slice(0, 10)
-  const codeLabel = `Mã lớp (VD: ${creating ? codePrefix(form.subject) : 'CLS-YOGA-'}AM)`
-  const codeField = !creating ? field('classCode', codeLabel, { required: true }) : <div className="code-suggest"><div className="code-suggest-box">
+  const codeLabel = creating ? `Mã lớp (tự nhập, VD: ${codePrefix(form.subject)}01)` : 'Mã lớp'
+  const conflictBox = codeConflict && <div className="code-suggest-actions"><button type="button" className="btn btn-primary btn-sm" onClick={() => autoCode(codeConflict)}>Sinh mã mới</button></div>
+  // Tạo mới, mã tự sinh: ô chỉ đọc + nút "Đổi mã".
+  const autoCodeField = <div className="code-suggest">
+    <label>Mã lớp (tự sinh theo bộ môn)<input value={form.classCode} readOnly aria-readonly="true" className="code-auto" /></label>
+    <div className="code-suggest-actions"><button type="button" className="btn btn-sm" onClick={unlockCode}>Đổi mã</button>
+      <span className="small muted">Tự nhập mã, hoặc gõ mã / tên để tìm lớp có sẵn (mở kỳ mới, dùng làm mẫu).</span></div>
+    {copiedFrom && <p className="small muted">Đã sao chép từ {copiedFrom}</p>}
+    {conflictBox}
+  </div>
+  const codeField = !creating ? field('classCode', codeLabel, { required: true }) : codeAuto ? autoCodeField : <div className="code-suggest"><div className="code-suggest-box">
     <label>{codeLabel}<input value={form.classCode} required autoComplete="off" role="combobox" aria-autocomplete="list" aria-expanded={showList} aria-controls={listId}
       aria-activedescendant={showList && active >= 0 ? `${listId}-${active}` : undefined}
-      onChange={e => { set('classCode', e.target.value); setListOpen(true); setActive(-1); setAskReopen(null) }}
+      onChange={e => { set('classCode', e.target.value); setListOpen(true); setActive(-1); setAskReopen(null); setCodeConflict('') }}
       onFocus={() => setListOpen(true)} onBlur={closeList} onKeyDown={onCodeKey} /></label>
     {showList && <ul className="code-suggest-list" role="listbox" id={listId}>
       {suggestions.map((c, i) => {
@@ -146,7 +174,9 @@ export default function ClassFormModal({ cls, onClose, onSaved }) {
         </li>
       })}
     </ul>}</div>
+    <div className="code-suggest-actions"><button type="button" className="btn btn-sm" onClick={() => autoCode()}>Dùng mã tự sinh</button></div>
     {copiedFrom && <p className="small muted">Đã sao chép từ {copiedFrom}</p>}
+    {conflictBox}
     {askReopen && <div className="alert alert-info" role="alert">
       Lớp {askReopen.classCode} đã đóng. Mở kỳ mới cho lớp này?
       <div className="code-suggest-actions"><button type="button" className="btn btn-primary btn-sm" onClick={() => startReopen(askReopen)}>Đồng ý</button><button type="button" className="btn btn-sm" onClick={() => setAskReopen(null)}>Hủy</button></div>
