@@ -1,11 +1,12 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useId, useState } from 'react'
 import Modal from '../../components/Modal'
 import { useStore } from '../../store/context'
 import { SUBJECTS } from '../../data/seed'
 import { FEATURES } from '../../config/features'
 import { classWarnings, coachLockReason, coachTeaches, sameAssignment, validateClass } from '../../validation/classRules'
 import { coachIsFull, coachLoad } from '../../validation/classDuplicates'
-import { addDays, toFormDate, toFormStamp, vnStamp } from '../../validation/classDates'
+import { addDays, vnStamp } from '../../validation/classDates'
+import { EMPTY_CLASS_FORM, TERM_DATES, classToForm, isReopening, reopenForm } from '../../validation/classForm'
 import { codePrefix, MAX_CLASSES_PER_COACH, subjectDefaults } from '../../config/classDefaults'
 import { findByCode, nextFreeCode, suggestClasses } from '../../validation/classCode'
 import { STATUS, buildCatalog, classStarted } from '../../catalog/catalogRules'
@@ -14,31 +15,22 @@ import { formatDate } from '../../store/utils'
 import '../../catalog.css'
 
 const timed = FEATURES.registrationTimes
-// sessionWeekdays (FEATURES.sessionPattern): mảng mã thứ ['MON', 'WED']; backendStore.saveClass nối thành "MON,WED" khi gửi BE.
-// registrationCloseAt = "Hết hạn đăng ký" (tùy chọn, không có mặc định). registrationOpenAt không còn dùng nên không có trong form.
-const EMPTY = { classCode: '', name: '', subject: 'Gym', description: '', capacity: 15, coachId: '', startDate: '', endDate: '', registrationCloseAt: '', sessionWeekdays: [] }
-const NO_DATES = { startDate: '', endDate: '', registrationCloseAt: '' }
 // Tạo mới: điền sẵn tiền tố mã và sĩ số mặc định theo bộ môn ban đầu.
-const fresh = () => ({ ...EMPTY, classCode: codePrefix(EMPTY.subject), capacity: subjectDefaults(EMPTY.subject).capacity })
-// Giá trị BE → ô nhập: ngày thì yyyy-MM-dd, hạn đăng ký có giờ thì yyyy-MM-ddTHH:mm (sửa lớp đã có hạn thì nạp hạn đó để gia hạn).
-const fromClass = cls => ({
-  ...EMPTY, ...Object.fromEntries(Object.keys(EMPTY).map(k => [k, cls[k] ?? ''])), id: cls.id,
-  startDate: toFormDate(cls.startDate), endDate: toFormDate(cls.endDate),
-  registrationCloseAt: timed ? toFormStamp(cls.registrationCloseAt, 'end') : toFormDate(cls.registrationCloseAt),
-  sessionWeekdays: parseWeekdays(cls.sessionWeekdays),
-})
+const fresh = () => ({ ...EMPTY_CLASS_FORM, classCode: codePrefix(EMPTY_CLASS_FORM.subject), capacity: subjectDefaults(EMPTY_CLASS_FORM.subject).capacity })
 
 // Tạo mới (cls = null) hoặc sửa lớp. Kiểm tra ở FE trước, BE kiểm tra lại khi lưu.
 // Khi tạo mới, ô Mã lớp gợi ý các lớp đã có: lớp đã đóng → mở kỳ mới (chuyển sang sửa lớp đó), lớp khác → dùng làm mẫu.
-// focusDeadline: mở từ lối tắt "Gia hạn" → đặt con trỏ vào ô Hết hạn đăng ký.
-export default function ClassFormModal({ cls, onClose, focusDeadline = false }) {
+export default function ClassFormModal({ cls, onClose }) {
   const { users, rooms, classes, schedules, saveClass } = useStore()
+  // Lớp đã kết thúc (cùng trạng thái "Đã đóng" như trang Danh sách lớp, kể cả lớp chỉ suy ngày từ buổi học).
+  const endedOf = c => Boolean(c) && buildCatalog({ classes: [c], schedules })[0].status === 'closed'
   const [target, setTarget] = useState(cls) // lớp đang sửa; null = tạo mới
-  const [reopen, setReopen] = useState(false) // sửa lớp đã đóng để mở kỳ mới: ngày nhập lại theo luật tạo mới
-  const [form, setForm] = useState(() => cls ? fromClass(cls) : fresh())
+  const [reopen, setReopen] = useState(false) // đã xác nhận mở kỳ mới từ gợi ý mã lớp
+  // Sửa lớp đã kết thúc: không nạp hạn đăng ký cũ (hạn cũ không dùng được cho kỳ mới).
+  const [form, setForm] = useState(() => cls ? classToForm(cls, { timed, ended: endedOf(cls) }) : fresh())
   // Ô mà manager đã tự sửa thì không tự điền đè khi đổi bộ môn (chỉ dùng khi tạo mới).
   const [touched, setTouched] = useState({ classCode: false, capacity: false })
-  const [original, setOriginal] = useState(() => cls ? fromClass(cls) : null)
+  const [original, setOriginal] = useState(() => cls ? classToForm(cls, { timed }) : null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [listOpen, setListOpen] = useState(false)
@@ -47,20 +39,15 @@ export default function ClassFormModal({ cls, onClose, focusDeadline = false }) 
   const [copiedFrom, setCopiedFrom] = useState('')
   const [coachNote, setCoachNote] = useState('') // báo nhẹ khi HLV đang chọn bị bỏ chọn vì đã đủ lớp
   const listId = useId()
-  const deadlineRef = useRef(null)
   const creating = !target
-  const freshDates = creating || reopen
+  // Mở kỳ mới: đã xác nhận từ gợi ý mã, hoặc sửa lớp đã kết thúc mà đổi ngày. Ngày nhập lại theo luật tạo mới.
+  const reopening = isReopening({ reopen, ended: endedOf(target), form, original })
+  const freshDates = creating || reopening
   // Lớp đã bắt đầu (đang sửa, không phải mở kỳ mới): không gia hạn được, khóa ô hạn đăng ký.
-  const deadlineLocked = Boolean(target) && !reopen && classStarted(target)
-  // Effect của Modal (con) chạy trước nên focus ở đây không bị Modal lấy lại.
-  useEffect(() => {
-    if (!focusDeadline || !deadlineRef.current || deadlineRef.current.disabled) return
-    deadlineRef.current.focus()
-    deadlineRef.current.scrollIntoView?.({ block: 'center' })
-  }, [focusDeadline])
+  const deadlineLocked = Boolean(target) && !reopening && classStarted(target)
   const coaches = users.filter(u => u.role === 'coach')
-  // Sửa lớp đã có buổi học / người đăng ký (không phải mở kỳ mới): không đổi được HLV (BE cũng chặn).
-  const coachLock = coachLockReason(target, schedules, reopen)
+  // Sửa lớp đã có coach và đã có buổi học / người đăng ký (không phải mở kỳ mới): không đổi được HLV (BE cũng chặn).
+  const coachLock = coachLockReason(target, schedules, reopening)
   // Số lớp khác của coach giao với khoảng ngày đang nhập (chưa đủ ngày thì đếm mọi lớp chưa đóng).
   const loadOf = (coachId, f) => coachLoad(coachId, classes, { startDate: f.startDate, endDate: f.endDate, excludeId: f.id })
   // Coach đang chọn không còn hợp lệ thì bỏ chọn và báo nhẹ: không dạy bộ môn (FEATURES.coachSubjects, khi đổi môn / chép mẫu)
@@ -100,13 +87,13 @@ export default function ClassFormModal({ cls, onClose, focusDeadline = false }) 
   // Dùng lớp có sẵn làm mẫu: chép thông tin, mã mới chưa ai dùng, để trống các ngày.
   const applyTemplate = source => {
     setCoachNote('')
-    setForm(checkCoach({ ...form, ...NO_DATES, name: source.name || '', subject: source.subject || form.subject, description: source.description || '', capacity: source.capacity ?? form.capacity, coachId: source.coachId ?? '', sessionWeekdays: parseWeekdays(source.sessionWeekdays), classCode: nextFreeCode(source.classCode, classes) }))
+    setForm(checkCoach({ ...form, ...TERM_DATES, name: source.name || '', subject: source.subject || form.subject, description: source.description || '', capacity: source.capacity ?? form.capacity, coachId: source.coachId ?? '', sessionWeekdays: parseWeekdays(source.sessionWeekdays), classCode: nextFreeCode(source.classCode, classes) }))
     setTouched({ classCode: true, capacity: true })
     setCopiedFrom(source.classCode); setAskReopen(null); setError(''); closeList()
   }
-  // Mở kỳ mới: chuyển sang sửa chính lớp đó, giữ mã và thông tin cũ, xóa trắng các ngày.
+  // Mở kỳ mới: chuyển sang sửa chính lớp đó, giữ mã và thông tin cũ, xóa trắng các ngày và hạn đăng ký.
   const startReopen = source => {
-    const base = { ...fromClass(source), ...NO_DATES }
+    const base = reopenForm(source, { timed })
     setTarget(source); setReopen(true); setForm(base); setOriginal(base)
     setAskReopen(null); setCopiedFrom(''); setCoachNote(''); setError(''); closeList()
   }
@@ -217,10 +204,10 @@ export default function ClassFormModal({ cls, onClose, focusDeadline = false }) 
     {!creating && <p className="small muted">Khi đổi lịch: buổi tự sinh chưa chỉnh sửa mà không còn khớp lịch mới sẽ bị xóa; buổi đã chỉnh hoặc tạo tay được giữ nguyên.</p>}
   </div>
   const warnings = classWarnings(form, { classes, original })
-  return <Modal title={creating ? 'Tạo lớp mới' : reopen ? `Mở kỳ mới — ${form.classCode}` : 'Sửa lớp học'} onClose={() => { if (!busy) onClose() }} width={640}>
+  return <Modal title={creating ? 'Tạo lớp mới' : reopening ? `Mở kỳ mới — ${form.classCode}` : 'Sửa lớp học'} onClose={() => { if (!busy) onClose() }} width={640}>
     <form className="form" onSubmit={submit} noValidate>
       <fieldset className="form api-fieldset" disabled={busy}>
-        {reopen && <div className="alert alert-info" role="status">Mở kỳ mới cho lớp {form.classCode}: giữ mã và thông tin cũ, hãy nhập lại ngày bắt đầu/kết thúc và hạn đăng ký cho kỳ mới.</div>}
+        {reopening && <div className="alert alert-info" role="status">Mở kỳ mới cho lớp {form.classCode}: giữ mã và thông tin cũ, hãy nhập lại ngày bắt đầu/kết thúc và hạn đăng ký cho kỳ mới.</div>}
         {/* Tạo và sửa cùng thứ tự: bộ môn → mã → tên → mô tả → sĩ số → ngày lớp → hạn đăng ký → HLV. */}
         {subjectField}{codeField}{nameField}{descField}{capacityField}
         {FEATURES.classDates && <>
@@ -229,7 +216,7 @@ export default function ClassFormModal({ cls, onClose, focusDeadline = false }) 
           {field('endDate', 'Ngày kết thúc lớp', { type: 'date', min: form.startDate ? addDays(form.startDate, 1) : undefined, required: freshDates })}
           <div className="code-suggest">
             {field('registrationCloseAt', timed ? 'Hết hạn đăng ký (ngày giờ, không bắt buộc)' : 'Hết hạn đăng ký (ngày, không bắt buộc)', {
-              type: regType, ref: deadlineRef, disabled: deadlineLocked,
+              type: regType, disabled: deadlineLocked,
               min: deadlineLocked ? undefined : regMin,
               max: form.startDate ? (timed ? `${form.startDate}T00:00` : addDays(form.startDate, -1)) : undefined,
             })}

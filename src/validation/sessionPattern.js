@@ -27,9 +27,11 @@ export const serializeWeekdays = (codes) => parseWeekdays(codes).join(',')
 
 const pad = (n) => String(n).padStart(2, '0')
 // 'yyyy-MM-dd' → Date theo giờ địa phương (không qua UTC). Sai định dạng → null.
+// Năm < 1900 cũng coi là sai: ô ngày của trình duyệt phát giá trị tạm như "0002-11-26" khi đang gõ năm,
+// nếu nhận thì xem trước sẽ chạy từ hôm nay thay vì từ ngày bắt đầu đang nhập.
 function parseDay(value) {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value ?? ''))
-  if (!m) return null
+  if (!m || Number(m[1]) < 1900) return null
   const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
   return Number.isNaN(d.getTime()) ? null : d
 }

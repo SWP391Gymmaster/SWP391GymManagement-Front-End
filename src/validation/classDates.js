@@ -53,16 +53,23 @@ export function validateClassDates(form, { now = null, original = null, timed = 
     if (start && changed('startDate', start) && start < tomorrow) errors.push(`Ngày bắt đầu lớp phải từ ngày mai (${dmy(tomorrow)}) trở đi.`)
   }
   if (start && end && end <= start) errors.push('Ngày kết thúc lớp phải sau ngày bắt đầu.')
-  // Hạn đăng ký: đúng định dạng (chặn năm bất thường như 222222), ở tương lai (chỉ khi đổi so với bản đang lưu, giống BE)
-  // và không sau 00:00 ngày bắt đầu lớp.
-  if (close) {
-    if (!(timed ? STAMP : DAY).test(close)) errors.push('Hạn đăng ký không hợp lệ, vui lòng chọn lại ngày giờ.')
-    else {
-      if (now && changed('registrationCloseAt', close) && (timed ? close <= vnStamp(now) : close < vnStamp(now).slice(0, 10))) {
-        errors.push('Hạn đăng ký phải ở tương lai.')
-      }
-      if (start && (timed ? close > `${start}T00:00` : close >= start)) errors.push(`Hạn đăng ký không được sau 00:00 ngày bắt đầu lớp (${dmy(start)}).`)
-    }
-  }
+  errors.push(...deadlineProblems(close, { startDate: start, now, changed: changed('registrationCloseAt', close), timed }))
+  return errors
+}
+
+/**
+ * Luật hạn đăng ký (dùng chung cho form lớp và modal "Gia hạn"). Trống = không đặt hạn → không lỗi.
+ *  - đúng định dạng (chặn năm bất thường như 222222)
+ *  - ở tương lai (chỉ khi changed = giá trị khác bản đang lưu, giống BE; cần now)
+ *  - không sau 00:00 ngày bắt đầu lớp
+ */
+export function deadlineProblems(value, { startDate = '', now = null, changed = true, timed = true } = {}) {
+  const close = timed ? String(value || '').slice(0, 16) : ymd(value)
+  if (!close) return []
+  if (!(timed ? STAMP : DAY).test(close)) return ['Hạn đăng ký không hợp lệ, vui lòng chọn lại ngày giờ.']
+  const errors = []
+  if (now && changed && (timed ? close <= vnStamp(now) : close < vnStamp(now).slice(0, 10))) errors.push('Hạn đăng ký phải ở tương lai.')
+  const start = ymd(startDate)
+  if (start && (timed ? close > `${start}T00:00` : close >= start)) errors.push(`Hạn đăng ký không được sau 00:00 ngày bắt đầu lớp (${dmy(start)}).`)
   return errors
 }

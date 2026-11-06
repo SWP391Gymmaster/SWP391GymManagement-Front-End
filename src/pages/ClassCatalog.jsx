@@ -8,7 +8,8 @@ import ClassFormModal from './catalog/ClassFormModal'
 import SessionFormModal from './catalog/SessionFormModal'
 import { formatDate, formatTime } from '../store/utils'
 import { FEATURES } from '../config/features'
-import { STATUS, TIME_SLOTS, EMPTY_FILTERS, buildCatalog, classStarted, deadlinePassed, filterCatalog, hasActiveFilter } from '../catalog/catalogRules'
+import { STATUS, TIME_SLOTS, EMPTY_FILTERS, buildCatalog, canExtendDeadline, deadlineDisplay, filterCatalog, hasActiveFilter } from '../catalog/catalogRules'
+import ExtendDeadlineModal from './catalog/ExtendDeadlineModal'
 import { isUnscheduled, weekdayName } from '../validation/sessionPattern'
 
 // Giờ của buổi: buổi BE tự sinh chưa có giờ thì ghi "Chưa xếp giờ" thay cho 00:00–00:00.
@@ -17,7 +18,6 @@ const sessionTime = s => isUnscheduled(s) ? 'Chưa xếp giờ' : `${formatTime(
 const dmy = v => formatDate(v)
 // Hạn đăng ký: có giờ thì hiện dd/MM/yyyy HH:mm. registrationOpenAt của lớp cũ bị bỏ qua.
 const stamp = v => v && String(v).length > 10 ? `${formatDate(v)} ${String(v).slice(11, 16)}` : dmy(v)
-const deadlineText = cls => cls.registrationCloseAt ? stamp(cls.registrationCloseAt) : 'Không giới hạn đến khi lớp bắt đầu'
 // Lý do không đăng ký lớp được (theo trạng thái lớp).
 const closedReason = status => status === 'started' ? 'Lớp đã bắt đầu' : status === 'closed' ? 'Lớp đã đóng' : 'Đã hết hạn đăng ký'
 const seatText = (s, capacity) => s.remaining == null ? `Sĩ số tối đa ${capacity}` : `Còn ${s.remaining}/${capacity} chỗ`
@@ -36,7 +36,7 @@ function CatalogView({ available, enrolledIds = [], classStats = null, membershi
   const [sessionMsg, setSessionMsg] = useState(null)
   const [classMsg, setClassMsg] = useState(null) // tương tự sessionMsg, cho đăng ký lớp
   // Quản lý (chỉ Manager, BE chỉ cho Manager ghi): form lớp, form buổi học, xác nhận xóa
-  const [classForm, setClassForm] = useState(null) // { cls, focusDeadline? } — cls = null nghĩa là tạo mới
+  const [classForm, setClassForm] = useState(null) // { cls } — cls = null nghĩa là tạo mới
   const [sessionForm, setSessionForm] = useState(null) // { session } — session = null nghĩa là thêm mới
   const [confirm, setConfirm] = useState(null) // { kind: 'class' | 'session', item }
   const [confirmError, setConfirmError] = useState('')
@@ -56,11 +56,12 @@ function CatalogView({ available, enrolledIds = [], classStats = null, membershi
   const [needPackage, setNeedPackage] = useState(false)
   const lacksPackage = isMember && (membership?.status === 'none' || membership?.status === 'expired')
   const canManage = currentUser.role === 'manager'
-  // Lối tắt "Gia hạn" (manager): lớp đã đặt hạn và chưa bắt đầu → mở form sửa lớp, con trỏ ở ô hạn đăng ký.
-  const canExtend = (cls, status) => canManage && Boolean(cls.registrationCloseAt) && status !== 'closed' && !classStarted(cls, now)
-  const extendButton = (cls, status) => canExtend(cls, status) && <button className="btn btn-sm" onClick={() => setClassForm({ cls, focusDeadline: true })}>Gia hạn</button>
-  // Hạn đăng ký: quá hạn thì nổi bật "Đã hết hạn đăng ký".
-  const deadlineLine = cls => <>{deadlineText(cls)}{deadlinePassed(cls, now) && <> <span className="badge badge-red">Đã hết hạn đăng ký</span></>}</>
+  // Nút "Gia hạn" chỉ ở chi tiết lớp (manager): lớp chưa bắt đầu và chưa kết thúc → modal nhỏ chỉ đổi hạn đăng ký.
+  const [extendFor, setExtendFor] = useState(null)
+  // Hạn đăng ký theo trạng thái lớp (deadlineDisplay, khớp điều kiện nút "Gia hạn"): quá hạn thì nổi bật
+  // "Đã hết hạn đăng ký (dd/MM/yyyy HH:mm)"; lớp đã bắt đầu thì kèm "Lớp đã bắt đầu, không nhận đăng ký".
+  const deadlineLine = display => display.kind === 'expired' ? <strong className="catalog-deadline-expired">{display.text}</strong>
+    : <>{display.text}{display.note && <> · <strong>{display.note}</strong></>}</>
   const enroll = async session => {
     if (busy) return
     if (lacksPackage) { setNeedPackage(true); return }
@@ -118,14 +119,13 @@ function CatalogView({ available, enrolledIds = [], classStats = null, membershi
         <p>HLV: {coachName(cls.coachId)}</p>
         <p>Bắt đầu lớp: {dmy(cls.startDate || firstDate) || '—'}</p>
         <p>Kết thúc lớp: {dmy(cls.endDate || lastDate) || '—'}</p>
-        {status !== 'closed' && status !== 'started' && <p>Hạn đăng ký: {deadlineLine(cls)}</p>}
+        {status !== 'closed' && status !== 'started' && deadlineDisplay(cls, now) && <p>Hạn đăng ký: {deadlineLine(deadlineDisplay(cls, now))}</p>}
         <p>{classStat ? seatText({ remaining: classStat.remainingSlots }, cls.capacity) : next ? seatText(next, cls.capacity) : `Sĩ số tối đa ${cls.capacity}`}</p>
         {isMember && classStat?.registeredByMe && <p className="small"><strong>Bạn đã đăng ký lớp này</strong></p>}
         <div className="catalog-actions">
           <button className="btn btn-sm" onClick={() => { setSelected(cls.id); setError(''); setNotice(''); setSessionMsg(null); setClassMsg(null) }}>Xem chi tiết</button>
           {isMember && canJoin && <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => joinClass(cls)}>Đăng ký lớp</button>}
           {isMember && classStat && !classStat.registeredByMe && !canRegister && status !== 'closed' && <button className="btn btn-sm" disabled>{closedReason(status)}</button>}
-          {extendButton(cls, status)}
           {canManage && <button className="btn btn-sm" onClick={() => setClassForm({ cls })}>Sửa</button>}
           {canManage && <button className="btn btn-sm btn-ghost" onClick={() => { setConfirm({ kind: 'class', item: cls }); setConfirmError('') }}>Xóa</button>}
         </div>
@@ -139,10 +139,10 @@ function CatalogView({ available, enrolledIds = [], classStats = null, membershi
         {(detail.cls.startDate || detail.cls.registrationCloseAt) && <div className="catalog-dates">
           <div><span>Bắt đầu lớp</span>{dmy(detail.cls.startDate) || '—'}</div>
           <div><span>Kết thúc lớp</span>{dmy(detail.cls.endDate) || '—'}</div>
-          <div><span>Hạn đăng ký</span>{deadlineLine(detail.cls)}</div>
+          {deadlineDisplay(detail.cls, now) && <div><span>Hạn đăng ký</span><span className="catalog-deadline">{deadlineLine(deadlineDisplay(detail.cls, now))}
+            {canManage && canExtendDeadline(detail.cls, now) && <button className="btn btn-sm" onClick={() => setExtendFor(detail.cls)}>Gia hạn</button>}</span></div>}
         </div>}
         <p className="small muted">Mã lớp {detail.cls.classCode} · HLV {coachName(detail.cls.coachId)} · Sĩ số tối đa {detail.cls.capacity}</p>
-        {canExtend(detail.cls, detail.status) && <div className="catalog-actions">{extendButton(detail.cls, detail.status)}</div>}
         {notice && <div className="alert alert-success" role="status">{notice}</div>}
         {error && <div className="alert alert-error" role="alert">{error}</div>}
         {isMember && detail.status === 'expired' && <div className="alert alert-error" role="status"><strong>Đã hết hạn đăng ký</strong>{detail.cls.registrationCloseAt ? ` (hạn ${stamp(detail.cls.registrationCloseAt)})` : ''}. Lớp không còn nhận đăng ký mới.</div>}
@@ -185,7 +185,8 @@ function CatalogView({ available, enrolledIds = [], classStats = null, membershi
         <div className="form-actions"><button className="btn" onClick={() => setNeedPackage(false)}>Để sau</button><button className="btn btn-primary" onClick={() => { setNeedPackage(false); setSelected(null); goTo?.('buy') }}>Mua gói tập</button></div>
       </div>
     </Modal>}
-    {classForm && <ClassFormModal cls={classForm.cls} focusDeadline={Boolean(classForm.focusDeadline)} onClose={() => setClassForm(null)} />}
+    {classForm && <ClassFormModal cls={classForm.cls} onClose={() => setClassForm(null)} />}
+    {extendFor && <ExtendDeadlineModal cls={extendFor} onClose={() => setExtendFor(null)} />}
     {sessionForm && detail && <SessionFormModal cls={detail.cls} session={sessionForm.session} onClose={() => setSessionForm(null)} />}
     {confirm && <Modal title={confirm.kind === 'unregister' ? 'Hủy đăng ký lớp' : 'Xác nhận xóa'} onClose={() => { if (!busy) setConfirm(null) }}>
       <div className="stack">

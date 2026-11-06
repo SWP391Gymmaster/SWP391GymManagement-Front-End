@@ -95,10 +95,12 @@ export function validateClass(form, usedRooms = [], dateOptions = {}) {
 
 // Lý do không cho đổi coach của lớp (null = được đổi): lớp đã có buổi học hoặc đã có người đăng ký lớp.
 // Mở kỳ mới (reopening) thì luôn được đổi. Tạo lớp mới (cls không có id) không khóa.
+// Lớp chưa có coach thì không khóa: BE cho gán coach lần đầu.
 // Số người đăng ký lấy từ cls.registeredCount nếu BE có trả; không có thì chỉ dựa vào buổi học.
 export const COACH_LOCK_REASON = 'Lớp đã mở, không được phép thay đổi giáo viên'
 export function coachLockReason(cls, schedules = [], reopening = false) {
   if (!cls || cls.id == null || cls.id === '' || reopening) return null
+  if (cls.coachId == null || cls.coachId === '') return null
   const hasSessions = schedules.some((s) => String(s.classId) === String(cls.id))
   const hasRegistrations = Number(cls.registeredCount) > 0
   return hasSessions || hasRegistrations ? COACH_LOCK_REASON : null

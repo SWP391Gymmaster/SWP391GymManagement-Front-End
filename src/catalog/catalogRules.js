@@ -40,6 +40,26 @@ export const deadlinePassed = (cls, now = new Date()) => { const deadline = dead
 // Đúng quy tắc BE: đăng ký LỚP được khi (chưa đặt hạn hoặc bây giờ <= hạn) VÀ lớp chưa bắt đầu VÀ lớp chưa kết thúc.
 export const registrationOpen = (cls, now = new Date()) => !deadlinePassed(cls, now) && !classStarted(cls, now) && !classEnded(cls, now)
 
+// "dd/MM/yyyy HH:mm" (hoặc dd/MM/yyyy khi chỉ có ngày) của hạn đăng ký.
+const deadlineStamp = (value) => {
+  const v = String(value)
+  const day = `${v.slice(8, 10)}/${v.slice(5, 7)}/${v.slice(0, 4)}`
+  return hasTime(v) ? `${day} ${v.slice(11, 16)}` : day
+}
+// Dòng "Hạn đăng ký" trong chi tiết lớp, khớp với điều kiện hiện nút "Gia hạn" (canExtendDeadline: chưa bắt đầu và chưa kết thúc).
+// null = ẩn dòng. kind: 'open' | 'none' | 'expired' (còn nút Gia hạn) · 'started' | 'ended' (không có nút).
+export function deadlineDisplay(cls, now = new Date()) {
+  const value = cls?.registrationCloseAt
+  if (classEnded(cls, now)) return value ? { kind: 'ended', text: deadlineStamp(value) } : null
+  if (classStarted(cls, now)) return value ? { kind: 'started', text: deadlineStamp(value), note: 'Lớp đã bắt đầu, không nhận đăng ký' } : null
+  if (!value) return { kind: 'none', text: 'Không giới hạn đến khi lớp bắt đầu' }
+  if (deadlinePassed(cls, now)) return { kind: 'expired', text: `Đã hết hạn đăng ký (${deadlineStamp(value)})` }
+  return { kind: 'open', text: deadlineStamp(value) }
+}
+
+// Nút "Gia hạn" (manager, trong chi tiết lớp): hiện khi lớp chưa bắt đầu và chưa kết thúc, kể cả khi hạn đã qua hoặc chưa đặt hạn.
+export const canExtendDeadline = (cls, now = new Date()) => !classStarted(cls, now) && !classEnded(cls, now)
+
 // Vòng đời của lớp theo ngày (chỉ có tác dụng khi BE đã trả các trường ngày):
 //  - Quá ngày kết thúc lớp                    → closed  (Đã đóng, mặc định ẩn)
 //  - Lớp đã bắt đầu (chưa kết thúc)           → started (Đã bắt đầu)
