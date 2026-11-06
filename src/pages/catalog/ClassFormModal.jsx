@@ -20,7 +20,7 @@ const fresh = () => ({ ...EMPTY_CLASS_FORM, classCode: codePrefix(EMPTY_CLASS_FO
 
 // Tạo mới (cls = null) hoặc sửa lớp. Kiểm tra ở FE trước, BE kiểm tra lại khi lưu.
 // Khi tạo mới, ô Mã lớp gợi ý các lớp đã có: lớp đã đóng → mở kỳ mới (chuyển sang sửa lớp đó), lớp khác → dùng làm mẫu.
-export default function ClassFormModal({ cls, onClose }) {
+export default function ClassFormModal({ cls, onClose, onSaved }) {
   const { users, rooms, classes, schedules, saveClass } = useStore()
   // Lớp đã kết thúc (cùng trạng thái "Đã đóng" như trang Danh sách lớp, kể cả lớp chỉ suy ngày từ buổi học).
   const endedOf = c => Boolean(c) && buildCatalog({ classes: [c], schedules })[0].status === 'closed'
@@ -124,7 +124,9 @@ export default function ClassFormModal({ cls, onClose }) {
     if (existing) problems.unshift(existingText(existing))
     if (problems.length) { setError(problems.join(' ')); return }
     setBusy(true); setError('')
-    try { await saveClass(form); onClose() } catch (err) { setError(err.message) } finally { setBusy(false) }
+    // onSaved(lớp đã lưu, { created }): created = form mở ở chế độ tạo mới (kể cả dùng làm mẫu / mở kỳ mới từ gợi ý mã).
+    const created = !cls
+    try { const saved = await saveClass(form); onClose(); onSaved?.(saved, { created }) } catch (err) { setError(err.message) } finally { setBusy(false) }
   }
   const field = (key, label, props = {}) => <label>{label}<input value={form[key]} onChange={e => set(key, e.target.value)} {...props} /></label>
   const regType = timed ? 'datetime-local' : 'date'

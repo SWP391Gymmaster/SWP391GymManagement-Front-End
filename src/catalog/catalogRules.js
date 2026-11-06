@@ -137,6 +137,13 @@ export function buildCatalog({ classes, schedules, available = null, classStats 
   })
 }
 
+// Thống kê buổi của một lớp (sessions = item.sessions từ buildCatalog, đã có cờ closed / unscheduled).
+// done = đã diễn ra (đã bắt đầu, hoặc buổi chưa xếp giờ đã qua ngày); upcoming = còn lại; unscheduled = chưa xếp giờ.
+export function sessionStats(sessions = []) {
+  const done = sessions.filter((s) => s.closed).length
+  return { total: sessions.length, done, upcoming: sessions.length - done, unscheduled: sessions.filter((s) => s.unscheduled).length }
+}
+
 const slotOf = (startTime) => {
   const hour = Number(startTime.slice(11, 13))
   return TIME_SLOTS.find((s) => hour >= s.from && hour < s.to)?.value

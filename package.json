@@ -7,7 +7,7 @@
         "dev": "vite",
         "build": "vite build",
         "lint": "eslint .",
-        "test": "node --test scripts/translations.test.mjs scripts/room-rules.test.mjs scripts/class-rules.test.mjs scripts/catalog-rules.test.mjs scripts/class-dates.test.mjs scripts/class-defaults.test.mjs scripts/class-code.test.mjs scripts/class-duplicates.test.mjs scripts/coach-subjects.test.mjs scripts/session-defaults.test.mjs scripts/coach-assignments.test.mjs scripts/coach-lock.test.mjs scripts/session-pattern.test.mjs scripts/unscheduled-sessions.test.mjs scripts/extend-deadline.test.mjs scripts/reopen-class.test.mjs",
+        "test": "node --test scripts/translations.test.mjs scripts/room-rules.test.mjs scripts/class-rules.test.mjs scripts/catalog-rules.test.mjs scripts/class-dates.test.mjs scripts/class-defaults.test.mjs scripts/class-code.test.mjs scripts/class-duplicates.test.mjs scripts/coach-subjects.test.mjs scripts/session-defaults.test.mjs scripts/coach-assignments.test.mjs scripts/coach-lock.test.mjs scripts/session-pattern.test.mjs scripts/unscheduled-sessions.test.mjs scripts/extend-deadline.test.mjs scripts/reopen-class.test.mjs scripts/class-detail.test.mjs",
         "test:avatar": "node scripts/avatar.test.mjs",
         "test:member": "node scripts/member.test.mjs",
         "test:api": "node scripts/api.test.mjs",
