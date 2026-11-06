@@ -3,7 +3,7 @@ import Modal from '../../components/Modal'
 import { useStore } from '../../store/context'
 import { SUBJECTS } from '../../data/seed'
 import { FEATURES } from '../../config/features'
-import { classWarnings, coachTeaches, sameAssignment, validateClass } from '../../validation/classRules'
+import { classWarnings, coachLockReason, coachTeaches, sameAssignment, validateClass } from '../../validation/classRules'
 import { coachIsFull, coachLoad } from '../../validation/classDuplicates'
 import { addDays, toFormDate, toFormStamp, vnStamp } from '../../validation/classDates'
 import { codePrefix, MAX_CLASSES_PER_COACH, subjectDefaults } from '../../config/classDefaults'
@@ -45,12 +45,14 @@ export default function ClassFormModal({ cls, onClose }) {
   const creating = !target
   const freshDates = creating || reopen
   const coaches = users.filter(u => u.role === 'coach')
+  // Sửa lớp đã có buổi học / người đăng ký (không phải mở kỳ mới): không đổi được HLV (BE cũng chặn).
+  const coachLock = coachLockReason(target, schedules, reopen)
   // Số lớp khác của coach giao với khoảng ngày đang nhập (chưa đủ ngày thì đếm mọi lớp chưa đóng).
   const loadOf = (coachId, f) => coachLoad(coachId, classes, { startDate: f.startDate, endDate: f.endDate, excludeId: f.id })
   // Coach đang chọn không còn hợp lệ thì bỏ chọn và báo nhẹ: không dạy bộ môn (FEATURES.coachSubjects, khi đổi môn / chép mẫu)
   // hoặc đã đủ lớp (khi đổi ngày / chép mẫu).
   const checkCoach = next => {
-    if (!next.coachId) return next
+    if (!next.coachId || coachLock) return next // HLV đang khóa thì giữ nguyên, khi lưu sẽ báo nếu không hợp lệ
     const name = coaches.find(c => String(c.id) === String(next.coachId))?.name || `#${next.coachId}`
     if (FEATURES.coachSubjects && next.subject !== form.subject && !coachTeaches(coaches.find(c => String(c.id) === String(next.coachId)), next.subject)) {
       setCoachNote(`Đã bỏ chọn HLV ${name} vì không dạy bộ môn ${next.subject}.`)
@@ -166,10 +168,11 @@ export default function ClassFormModal({ cls, onClose }) {
   const coachText = ({ c, n, full, wrongSubject }) => wrongSubject ? `${c.name} (không dạy ${form.subject})`
     : full ? `${c.name} (đủ ${MAX_CLASSES_PER_COACH}/${MAX_CLASSES_PER_COACH})` : `${c.name} (${n}/${MAX_CLASSES_PER_COACH} lớp)`
   const coachField = <div className="code-suggest">
-    <label>Huấn luyện viên<select value={form.coachId} onChange={e => set('coachId', e.target.value)}><option value="">Chưa phân công</option>
+    <label>Huấn luyện viên<select value={form.coachId} disabled={Boolean(coachLock)} onChange={e => set('coachId', e.target.value)}><option value="">Chưa phân công</option>
       {coachRows.map(row => <option key={row.c.id} value={row.c.id} disabled={row.full || row.wrongSubject}>{coachText(row)}</option>)}
     </select></label>
-    {FEATURES.coachSubjects && !coachRows.some(r => !r.wrongSubject) && <p className="small muted">Chưa có huấn luyện viên nào dạy bộ môn {form.subject}.</p>}
+    {coachLock && <p className="small muted">{coachLock}</p>}
+    {FEATURES.coachSubjects && !coachLock && !coachRows.some(r => !r.wrongSubject) && <p className="small muted">Chưa có huấn luyện viên nào dạy bộ môn {form.subject}.</p>}
     {coachNote && <p className="small muted" role="status">{coachNote}</p>}
   </div>
   const warnings = classWarnings(form, { classes, original })
