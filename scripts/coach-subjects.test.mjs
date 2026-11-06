@@ -25,21 +25,23 @@ test('coachTeaches: đúng môn / sai môn / không có subjects', () => {
 test('cờ tắt: không kiểm tra coach theo môn', () => {
   assert.equal(coachSubjectProblem(8, 'Yoga', coaches, false), '')
   assert.deepEqual(validateClass({ ...yoga, coachId: 8 }, [], { coaches, coachSubjects: false }), [])
-  assert.deepEqual(validateSchedule({ ...session, coachId: 8 }, yogaClass, room, { coaches, coachSubjects: false }), [])
 })
 
 test('cờ bật, đúng môn: hợp lệ', () => {
   assert.equal(coachSubjectProblem(7, 'Yoga', coaches, true), '')
   assert.deepEqual(validateClass({ ...yoga, coachId: 7 }, [], { coaches, coachSubjects: true }), [])
-  assert.deepEqual(validateSchedule({ ...session, coachId: 7 }, yogaClass, room, { coaches, coachSubjects: true }), [])
 })
 
 test('cờ bật, sai môn: bị chặn', () => {
   const gym = { ...yoga, classCode: 'CLS-GYM-AM', subject: 'Gym' }
   assert.deepEqual(validateClass({ ...gym, coachId: 7 }, [], { coaches, coachSubjects: true }), ['Huấn luyện viên Phạm Ngọc Lan không dạy bộ môn Gym.'])
-  const gymClass = { ...yogaClass, subject: 'Gym' }
-  const gymRoom = { ...room, type: 'GYM' }
-  assert.ok(validateSchedule({ ...session, coachId: 7 }, gymClass, gymRoom, { coaches, coachSubjects: true }).includes('Huấn luyện viên Phạm Ngọc Lan không dạy bộ môn Gym.'))
+})
+
+test('buổi học không kiểm tra coach riêng: coach của buổi luôn là coach của lớp', () => {
+  // coachId của form (kể cả coach không dạy môn) bị bỏ qua, chỉ cần lớp có coach.
+  assert.deepEqual(validateSchedule({ ...session, coachId: 8 }, yogaClass, room, { coaches, coachSubjects: true }), [])
+  assert.deepEqual(validateSchedule({ ...session, coachId: 7 }, { ...yogaClass, coachId: '' }, room), ['Lớp chưa có huấn luyện viên, hãy gán coach cho lớp trước.'])
+  assert.deepEqual(validateSchedule(session, { ...yogaClass, coachId: null }, room), ['Lớp chưa có huấn luyện viên, hãy gán coach cho lớp trước.'])
 })
 
 test('cờ bật, coach không có subjects: không chọn được', () => {

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import Layout from './components/Layout'
 import { useStore } from './store/context'
 import MemberDataState from './components/MemberDataState'
@@ -8,7 +8,10 @@ import ManagerDashboard from './pages/manager/Dashboard'
 import Reports from './pages/manager/Reports'
 import Packages from './pages/manager/Packages'
 import Rooms from './pages/manager/Rooms'
+import CoachSubjects from './pages/manager/CoachSubjects'
 import ClassCatalog from './pages/ClassCatalog'
+import ClassDetail from './pages/ClassDetail'
+import { DETAIL_PAGES, menuKeyOf, readPageState, restorePage, writePageState } from './navigation/pageState'
 import MemberHome from './pages/member/MemberHome'
 import Checkout from './pages/member/Checkout'
 import MemberSchedule from './pages/member/MemberSchedule'
@@ -41,6 +44,7 @@ const MENUS = {
     { key: 'packages', label: 'Gói thành viên', icon: '🎫', el: Packages },
     { key: 'rooms', label: 'Phòng tập', icon: '🏢', el: Rooms },
     { key: 'catalog', label: 'Danh sách lớp', icon: '🗂️', el: ClassCatalog },
+    { key: 'coach-subjects', label: 'Phân công bộ môn', icon: '🏷️', el: CoachSubjects },
     { key: 'payments', label: 'Thanh toán & Hóa đơn', icon: '🧾', el: Payments },
   ],
   receptionist: [
@@ -58,14 +62,26 @@ const MENUS = {
   ],
 }
 
+// Trang không có mục menu riêng; chỉ mở được khi role có mục menu cha (DETAIL_PAGES trong navigation/pageState.js).
+const DETAIL_ROUTES = [{ key: 'class-detail', el: ClassDetail }]
+const sessionStore = () => { try { return window.sessionStorage } catch { return null } }
+
 function RoleApp({ user, initialPage }) {
   const { loading, loadError, refresh } = useStore()
-  const [page, setPage] = useState(initialPage)
   const menu = user.role === 'member' || user.role === 'admin' ? MENUS[user.role] : [...MENUS[user.role], { key: 'profile', label: 'Hồ sơ', el: Profile }]
-  const Page = (menu.find((m) => m.key === page) || menu[0]).el
+  const menuKeys = menu.map((m) => m.key)
+  // Trang hiện tại + tham số (vd { classId }). F5 khi đang ở trang chi tiết thì quay lại đúng trang đó.
+  const [nav, setNav] = useState(() => restorePage(readPageState(sessionStore()), { userId: user.id, menuKeys }) || { page: initialPage, params: {} })
+  // goTo(pageKey, params): điều hướng; chỉ lưu sessionStorage cho trang chi tiết.
+  const goTo = useCallback((page, params = {}) => {
+    setNav({ page, params })
+    writePageState(sessionStore(), DETAIL_PAGES[page] ? { page, params, userId: user.id } : null)
+  }, [user.id])
+  const pages = [...menu, ...DETAIL_ROUTES.filter((r) => menuKeys.includes(DETAIL_PAGES[r.key]))]
+  const Page = (pages.find((m) => m.key === nav.page) || menu[0]).el
   return (
-    <Layout menu={menu} page={page} setPage={setPage}>
-      {loading || loadError ? <MemberDataState error={loadError} retry={refresh} /> : <Page goTo={setPage} />}
+    <Layout menu={menu} page={menuKeyOf(nav.page)} setPage={goTo}>
+      {loading || loadError ? <MemberDataState error={loadError} retry={refresh} /> : <Page key={`${nav.page}:${nav.params.classId ?? ''}`} goTo={goTo} params={nav.params} />}
     </Layout>
   )
 }

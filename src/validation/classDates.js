@@ -1,7 +1,9 @@
 // Luật về thời gian của lớp (T2.4). Hàm thuần, so sánh chuỗi theo giờ Việt Nam để test bằng node --test.
 //  - Ngày bắt đầu/kết thúc lớp: dạng yyyy-MM-dd.
-//  - Mở/kết thúc đăng ký sớm: yyyy-MM-ddTHH:mm khi timed = true, yyyy-MM-dd khi timed = false.
+//  - Hạn đăng ký (registrationCloseAt): yyyy-MM-ddTHH:mm khi timed = true, yyyy-MM-dd khi timed = false.
 
+const STAMP = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/
+const DAY = /^\d{4}-\d{2}-\d{2}$/
 const ymd = (value) => (value ? String(value).slice(0, 10) : '')
 export const dmy = (value) => (value ? `${String(value).slice(8, 10)}/${String(value).slice(5, 7)}/${String(value).slice(0, 4)}` : '')
 
@@ -34,7 +36,7 @@ export function validateClassDates(form, { now = null, original = null, timed = 
   const start = ymd(form.startDate)
   const end = ymd(form.endDate)
   const stamp = (value) => (timed ? String(value || '').slice(0, 16) : ymd(value))
-  const open = stamp(form.registrationOpenAt)
+  // registrationOpenAt không còn dùng (BE luôn đặt null): chỉ còn hạn đăng ký registrationCloseAt (tùy chọn).
   const close = stamp(form.registrationCloseAt)
   const before = (key) => {
     if (!original) return null
@@ -49,21 +51,25 @@ export function validateClassDates(form, { now = null, original = null, timed = 
     const current = vnStamp(now)
     const tomorrow = addDays(current.slice(0, 10), 1)
     if (start && changed('startDate', start) && start < tomorrow) errors.push(`Ngày bắt đầu lớp phải từ ngày mai (${dmy(tomorrow)}) trở đi.`)
-    if (open && changed('registrationOpenAt', open) && (timed ? open < current : open < current.slice(0, 10))) {
-      errors.push(timed ? 'Thời gian mở đăng ký sớm không được trước thời điểm hiện tại.' : 'Ngày mở đăng ký sớm không được trước ngày hiện tại.')
-    }
-    if (close && changed('registrationCloseAt', close) && (timed ? close <= current : close < current.slice(0, 10))) {
-      errors.push(timed ? 'Thời gian kết thúc đăng ký sớm phải sau thời điểm hiện tại.' : 'Ngày kết thúc đăng ký sớm không được trước ngày hiện tại.')
-    }
   }
   if (start && end && end <= start) errors.push('Ngày kết thúc lớp phải sau ngày bắt đầu.')
-  if (Boolean(open) !== Boolean(close)) errors.push('Nhập đủ cả thời gian mở và kết thúc đăng ký sớm, hoặc để trống cả hai.')
-  if (open && close && (timed ? close <= open : close < open)) {
-    errors.push(timed ? 'Thời gian kết thúc đăng ký sớm phải sau thời gian mở.' : 'Ngày kết thúc đăng ký sớm phải từ ngày mở trở đi.')
-  }
-  if (close && start) {
-    if (timed && close > `${start}T00:00`) errors.push(`Đăng ký sớm phải kết thúc trước 00:00 ngày bắt đầu lớp (${dmy(start)}).`)
-    if (!timed && close >= start) errors.push('Ngày kết thúc đăng ký sớm phải trước ngày bắt đầu lớp.')
-  }
+  errors.push(...deadlineProblems(close, { startDate: start, now, changed: changed('registrationCloseAt', close), timed }))
+  return errors
+}
+
+/**
+ * Luật hạn đăng ký (dùng chung cho form lớp và modal "Gia hạn"). Trống = không đặt hạn → không lỗi.
+ *  - đúng định dạng (chặn năm bất thường như 222222)
+ *  - ở tương lai (chỉ khi changed = giá trị khác bản đang lưu, giống BE; cần now)
+ *  - không sau 00:00 ngày bắt đầu lớp
+ */
+export function deadlineProblems(value, { startDate = '', now = null, changed = true, timed = true } = {}) {
+  const close = timed ? String(value || '').slice(0, 16) : ymd(value)
+  if (!close) return []
+  if (!(timed ? STAMP : DAY).test(close)) return ['Hạn đăng ký không hợp lệ, vui lòng chọn lại ngày giờ.']
+  const errors = []
+  if (now && changed && (timed ? close <= vnStamp(now) : close < vnStamp(now).slice(0, 10))) errors.push('Hạn đăng ký phải ở tương lai.')
+  const start = ymd(startDate)
+  if (start && (timed ? close > `${start}T00:00` : close >= start)) errors.push(`Hạn đăng ký không được sau 00:00 ngày bắt đầu lớp (${dmy(start)}).`)
   return errors
 }

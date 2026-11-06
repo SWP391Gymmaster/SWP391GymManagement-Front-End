@@ -25,8 +25,27 @@
 .badge-wait { background: var(--info-soft); color: var(--fg); }
 .catalog-dates { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px 16px; font-size: 13px; }
 .catalog-dates span { color: var(--muted); display: block; font-size: 12px; }
+/* Dòng "Hạn đăng ký" trong chi tiết lớp: giá trị + nút "Gia hạn" (manager) */
+.catalog-deadline { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.catalog-deadline-expired { color: var(--danger); }
 .catalog-actions { display: flex; gap: 8px; flex-wrap: wrap; }
 .catalog-actions .btn { flex: 1 1 auto; }
 .catalog-session-actions { display: flex; gap: 6px; flex-shrink: 0; }
 .catalog-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .catalog-toolbar h3 { margin: 0; }
+/* Lịch học hằng tuần trong form lớp (FEATURES.sessionPattern) */
+.pattern-block { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--border); border-radius: 10px; }
+.pattern-title { font-size: 13px; font-weight: 600; }
+.pattern-days { display: flex; flex-wrap: wrap; gap: 6px; }
+.pattern-days .btn { min-width: 44px; }
+.pattern-block p { margin: 0; }
+.pattern-preview { max-height: 220px; overflow: auto; }
+/* Trang Chi tiết lớp (ClassDetail.jsx) */
+.class-detail-title { margin: 0; font-size: 20px; }
+.class-detail-desc { margin: 0; white-space: pre-line; }
+.class-detail-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; }
+.class-detail-stats div { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border: 1px solid var(--border); border-radius: 9px; font-size: 13px; }
+.class-detail-stats span { color: var(--muted); font-size: 12px; }
+.class-detail-stats strong { font-size: 18px; }
+/* Mã lớp tự sinh khi tạo lớp: ô chỉ đọc */
+.code-auto { background: var(--bg); color: var(--fg); font-weight: 600; letter-spacing: .02em; cursor: default; }

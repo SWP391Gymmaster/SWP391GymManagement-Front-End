@@ -4,6 +4,7 @@ import { validateClassDates, vnStamp } from './classDates.js'
 import { codePrefix, MAX_CLASSES_PER_COACH } from '../config/classDefaults.js'
 import { coachIsFull, coachLoad, findDuplicate, findOverlaps } from './classDuplicates.js'
 import { FEATURES } from '../config/features.js'
+import { isUnscheduled } from './sessionPattern.js'
 
 export { validateClassDates }
 
@@ -92,18 +93,36 @@ export function validateClass(form, usedRooms = [], dateOptions = {}) {
   return errors
 }
 
+// Lý do không cho đổi coach của lớp (null = được đổi): lớp đã có buổi học hoặc đã có người đăng ký lớp.
+// Mở kỳ mới (reopening) thì luôn được đổi. Tạo lớp mới (cls không có id) không khóa.
+// Lớp chưa có coach thì không khóa: BE cho gán coach lần đầu.
+// Số người đăng ký lấy từ cls.registeredCount nếu BE có trả; không có thì chỉ dựa vào buổi học.
+export const COACH_LOCK_REASON = 'Lớp đã mở, không được phép thay đổi giáo viên'
+export function coachLockReason(cls, schedules = [], reopening = false) {
+  if (!cls || cls.id == null || cls.id === '' || reopening) return null
+  if (cls.coachId == null || cls.coachId === '') return null
+  const hasSessions = schedules.some((s) => String(s.classId) === String(cls.id))
+  const hasRegistrations = Number(cls.registeredCount) > 0
+  return hasSessions || hasRegistrations ? COACH_LOCK_REASON : null
+}
+
+// Coach của buổi học luôn là coach của lớp: lớp chưa có coach thì chưa thêm/sửa buổi được.
+export const NO_CLASS_COACH = 'Lớp chưa có huấn luyện viên, hãy gán coach cho lớp trước.'
+export const classHasCoach = (cls) => cls?.coachId != null && cls.coachId !== ''
+
 // Tìm buổi khác trùng giờ về phòng hoặc huấn luyện viên. context = { schedules, classes }.
 function conflicts(form, cls, room, { schedules = [], classes = [] }) {
   const errors = []
   const start = minute(form.startTime)
   const end = minute(form.endTime)
   const coachOf = (s) => s.coachId || classes.find((c) => String(c.id) === String(s.classId))?.coachId
-  const myCoach = form.coachId || cls?.coachId
+  const myCoach = cls?.coachId
   const nameOf = (s) => classes.find((c) => String(c.id) === String(s.classId))?.name || `#${s.classId}`
   let roomDone = false
   let coachDone = false
   for (const s of schedules) {
     if (form.id && String(s.id) === String(form.id)) continue
+    if (isUnscheduled(s)) continue // buổi chưa xếp giờ không tính trùng phòng/coach cho tới khi được điền giờ
     if (!(minute(s.startTime) < end && start < minute(s.endTime))) continue
     const when = `${hhmm(s.startTime)}–${hhmm(s.endTime)} ngày ${dm(s.startTime)}`
     if (!roomDone && room && String(s.roomId) === String(room.id)) {
@@ -121,18 +140,14 @@ function conflicts(form, cls, room, { schedules = [], classes = [] }) {
 export const SESSION_DESCRIPTION_MAX = 1000
 
 // Buổi học: cls và room là object đã tra cứu từ id; có thể undefined nếu chưa chọn.
-// context: { schedules, classes, coaches, coachSubjects (mặc định FEATURES.coachSubjects) }.
+// context: { schedules, classes }. Coach của buổi = coach của lớp (bộ môn đã kiểm tra khi lưu lớp), nên chỉ cần lớp có coach.
 export function validateSchedule(form, cls, room, context = {}) {
   const errors = []
   if (!cls) errors.push('Vui lòng chọn lớp.')
   if (!room) errors.push('Vui lòng chọn phòng.')
   if (!form.startTime || !form.endTime) errors.push('Vui lòng nhập giờ bắt đầu và giờ kết thúc.')
   else if (form.endTime <= form.startTime) errors.push('Giờ kết thúc phải sau giờ bắt đầu.')
-  // HLV chọn riêng cho buổi học phải dạy bộ môn của lớp (để trống = theo HLV của lớp, đã kiểm tra khi lưu lớp).
-  if (cls) {
-    const subjectProblem = coachSubjectProblem(form.coachId, cls.subject, context.coaches, context.coachSubjects ?? FEATURES.coachSubjects)
-    if (subjectProblem) errors.push(subjectProblem)
-  }
+  if (cls && !classHasCoach(cls)) errors.push(NO_CLASS_COACH)
   if (String(form.description ?? '').length > SESSION_DESCRIPTION_MAX) errors.push(`Lộ trình / mô tả buổi học tối đa ${SESSION_DESCRIPTION_MAX} ký tự.`)
   if (cls && room) {
     if (Number(cls.capacity) > Number(room.capacity)) errors.push(`Sĩ số lớp (${cls.capacity}) vượt sức chứa phòng "${room.name}" (${room.capacity}).`)

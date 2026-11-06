@@ -576,10 +576,13 @@ button, input, select, textarea { transition: background .18s, border-color .18s
 .danger { color: var(--danger); }
 .admin-role-info { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 9px; background: var(--info-soft); color: var(--info); font-size: 11px; line-height: 1.6; }
 .admin-role-info > svg { flex-shrink: 0; }
-.staff-subjects { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
 .staff-subject-list { display: flex; flex-wrap: wrap; gap: 6px 16px; }
 .staff-subject-list .check { flex-direction: row; align-items: center; gap: 6px; }
 .staff-subject-list .check input { width: auto; min-height: auto; }
+.coach-subject-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.coach-unassigned td { background: #fef3cd66; }
+.coach-unassigned td:first-child { box-shadow: inset 3px 0 0 #e0a800; }
+:root[data-theme='dark'] .coach-unassigned td { background: #4a3f1f66; }
 
 /* ---------- Badge Variants ---------- */
 .badge-amber { background: #fef3cd; color: #856404; }

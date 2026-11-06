@@ -4,6 +4,9 @@ import { validateRegistration } from './publicService.js'
 import { normalizeCode } from '../validation/roomRules.js'
 import { FEATURES } from '../config/features.js'
 import { toPayloadStamp } from '../validation/classDates.js'
+import { serializeWeekdays } from '../validation/sessionPattern.js'
+// Lớp từ BE: giữ nguyên các trường, sessionWeekdays luôn là chuỗi ("" khi BE không trả / null).
+export const mapClass = cls => ({ ...cls, sessionWeekdays: typeof cls?.sessionWeekdays === 'string' ? cls.sessionWeekdays : '' })
 // Luồng đăng nhập: Login.jsx → login(email, password) → authenticate('login', body)
 // → api.login(body) trong api.js → BE → lưu phiên → cập nhật giao diện.
 const SESSION_KEY = 'gymmaster-api-session-v1'
@@ -47,12 +50,16 @@ export function createBackendStore({ baseUrl = '/backend', sessionStorage = glob
   const api = createControllerApi(request)
   const assertCurrent = version => { if (version !== generation || !snapshot.currentUser) throw new Error('Phiên đăng nhập đã thay đổi. Vui lòng thử lại.') }
   // Tải dữ liệu dùng chung sau đăng nhập hoặc khi người dùng yêu cầu tải lại.
-  const refresh = async () => {
+  // silent: tải lại ngầm sau khi ghi (vd. lưu lớp để thấy buổi BE vừa tự sinh), không bật màn hình đang tải
+  // (App.jsx thay cả trang bằng MemberDataState khi loading) và lỗi tải ngầm không thay trang bằng màn hình lỗi.
+  // Tham số có thể là event khi gắn trực tiếp vào onClick, nên chỉ đọc đúng thuộc tính silent.
+  const refresh = async (options) => {
     if (!snapshot.currentUser) return
+    const silent = options?.silent === true
     const version = generation
     const id = ++refreshId
     const user = snapshot.currentUser
-    publish({ loading: true, loadError: '' })
+    if (!silent) publish({ loading: true, loadError: '' })
     try {
       const [packages, rooms, classes, schedules, coaches] = await Promise.all([
         api.packages.list(), api.rooms.list(), api.classes.list(),
@@ -65,9 +72,9 @@ export function createBackendStore({ baseUrl = '/backend', sessionStorage = glob
       // nhưng ghép subjects từ /api/coaches theo id (phản hồi đăng nhập không có subjects).
       const coachList = coaches.map(mapUser)
       const self = coachList.find(u => u.id === user.id)
-      publish({ packages: packages.map(mapPackage), rooms, classes, schedules, users: [...coachList.filter(u => u.id !== user.id), self ? { ...snapshot.currentUser, subjects: self.subjects } : snapshot.currentUser], loading: false, loadError: '', memberRevision: snapshot.memberRevision + 1 })
+      publish({ packages: packages.map(mapPackage), rooms, classes: classes.map(mapClass), schedules, users: [...coachList.filter(u => u.id !== user.id), self ? { ...snapshot.currentUser, subjects: self.subjects } : snapshot.currentUser], loading: false, loadError: '', memberRevision: snapshot.memberRevision + 1 })
     } catch (error) {
-      if (version === generation && id === refreshId) publish({ loading: false, loadError: error.message })
+      if (version === generation && id === refreshId && !silent) publish({ loading: false, loadError: error.message })
     }
   }
   /**
@@ -226,8 +233,16 @@ export function createBackendStore({ baseUrl = '/backend', sessionStorage = glob
     },
     deletePackage: id => remove('packages', 'packages', id),
     saveRoom: room => save('rooms', 'rooms', room, { roomCode: normalizeCode(room.roomCode), name: room.name.trim(), capacity: Number(room.capacity), type: room.type }),    deleteRoom: id => remove('rooms', 'rooms', id),
-    saveClass: cls => save('classes', 'classes', cls, { classCode: normalizeCode(cls.classCode), name: cls.name.trim(), subject: cls.subject, description: cls.description || '', level: cls.level ?? null, capacity: Number(cls.capacity), coachId: cls.coachId ? Number(cls.coachId) : null,
-  ...(FEATURES.classDates && { startDate: cls.startDate || null, endDate: cls.endDate || null, registrationOpenAt: toPayloadStamp(cls.registrationOpenAt, FEATURES.registrationTimes), registrationCloseAt: toPayloadStamp(cls.registrationCloseAt, FEATURES.registrationTimes) }) }),
+    // Chỉ gửi hạn đăng ký registrationCloseAt (null = không đặt hạn); registrationOpenAt không còn dùng, BE luôn đặt null.
+    // FEATURES.sessionPattern: gửi sessionWeekdays ("MON,WED", "" = không tự sinh). BE có thể vừa sinh/xóa buổi,
+    // nên tải lại ngầm để các buổi mới xuất hiện ngay (lỗi tải ngầm không làm hỏng việc lưu lớp đã thành công).
+    async saveClass(cls) {
+      const item = await save('classes', 'classes', cls, { classCode: normalizeCode(cls.classCode), name: cls.name.trim(), subject: cls.subject, description: cls.description || '', level: cls.level ?? null, capacity: Number(cls.capacity), coachId: cls.coachId ? Number(cls.coachId) : null,
+        ...(FEATURES.classDates && { startDate: cls.startDate || null, endDate: cls.endDate || null, registrationCloseAt: toPayloadStamp(cls.registrationCloseAt, FEATURES.registrationTimes) }),
+        ...(FEATURES.sessionPattern && { sessionWeekdays: serializeWeekdays(cls.sessionWeekdays) }) }, mapClass)
+      await refresh({ silent: true })
+      return item
+    },
     deleteClass: id => remove('classes', 'classes', id),
     saveSchedule: schedule => save('schedules', 'schedules', schedule, { classId: Number(schedule.classId), roomId: Number(schedule.roomId), coachId: schedule.coachId ? Number(schedule.coachId) : null, startTime: schedule.startTime, endTime: schedule.endTime,
       ...(FEATURES.sessionDescription && { description: String(schedule.description ?? '').trim() || null }) }),
