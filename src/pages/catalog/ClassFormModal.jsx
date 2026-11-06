@@ -9,10 +9,13 @@ import { addDays, toFormDate, toFormStamp, vnStamp } from '../../validation/clas
 import { codePrefix, MAX_CLASSES_PER_COACH, subjectDefaults } from '../../config/classDefaults'
 import { findByCode, nextFreeCode, suggestClasses } from '../../validation/classCode'
 import { STATUS, buildCatalog } from '../../catalog/catalogRules'
+import { WEEKDAYS, parseWeekdays, patternProblems, previewSessions, serializeWeekdays } from '../../validation/sessionPattern'
+import { formatDate } from '../../store/utils'
 import '../../catalog.css'
 
 const timed = FEATURES.registrationTimes
-const EMPTY = { classCode: '', name: '', subject: 'Gym', description: '', capacity: 15, coachId: '', startDate: '', endDate: '', registrationOpenAt: '', registrationCloseAt: '' }
+// sessionWeekdays (FEATURES.sessionPattern): mảng mã thứ ['MON', 'WED']; backendStore.saveClass nối thành "MON,WED" khi gửi BE.
+const EMPTY = { classCode: '', name: '', subject: 'Gym', description: '', capacity: 15, coachId: '', startDate: '', endDate: '', registrationOpenAt: '', registrationCloseAt: '', sessionWeekdays: [] }
 const NO_DATES = { startDate: '', endDate: '', registrationOpenAt: '', registrationCloseAt: '' }
 // Tạo mới: điền sẵn tiền tố mã và sĩ số mặc định theo bộ môn ban đầu.
 const fresh = () => ({ ...EMPTY, classCode: codePrefix(EMPTY.subject), capacity: subjectDefaults(EMPTY.subject).capacity })
@@ -22,6 +25,7 @@ const fromClass = cls => ({
   startDate: toFormDate(cls.startDate), endDate: toFormDate(cls.endDate),
   registrationOpenAt: timed ? toFormStamp(cls.registrationOpenAt, 'start') : toFormDate(cls.registrationOpenAt),
   registrationCloseAt: timed ? toFormStamp(cls.registrationCloseAt, 'end') : toFormDate(cls.registrationCloseAt),
+  sessionWeekdays: parseWeekdays(cls.sessionWeekdays),
 })
 
 // Tạo mới (cls = null) hoặc sửa lớp. Kiểm tra ở FE trước, BE kiểm tra lại khi lưu.
@@ -86,7 +90,7 @@ export default function ClassFormModal({ cls, onClose }) {
   // Dùng lớp có sẵn làm mẫu: chép thông tin, mã mới chưa ai dùng, để trống các ngày.
   const applyTemplate = source => {
     setCoachNote('')
-    setForm(checkCoach({ ...form, ...NO_DATES, name: source.name || '', subject: source.subject || form.subject, description: source.description || '', capacity: source.capacity ?? form.capacity, coachId: source.coachId ?? '', classCode: nextFreeCode(source.classCode, classes) }))
+    setForm(checkCoach({ ...form, ...NO_DATES, name: source.name || '', subject: source.subject || form.subject, description: source.description || '', capacity: source.capacity ?? form.capacity, coachId: source.coachId ?? '', sessionWeekdays: parseWeekdays(source.sessionWeekdays), classCode: nextFreeCode(source.classCode, classes) }))
     setTouched({ classCode: true, capacity: true })
     setCopiedFrom(source.classCode); setAskReopen(null); setError(''); closeList()
   }
@@ -118,6 +122,8 @@ export default function ClassFormModal({ cls, onClose }) {
     // Tạo mới / mở kỳ mới: bắt buộc có ngày bắt đầu/kết thúc, không được ở quá khứ. Sửa: chỉ kiểm tra giá trị đã đổi.
     // Luật coach (trùng hoàn toàn, đủ 5 lớp) chặn lưu; lớp chỉ giao nhau thì là cảnh báo bên dưới.
     const problems = validateClass(form, usedRooms, { ...(FEATURES.classDates ? { now: new Date(), requireDates: freshDates } : {}), original, timed, classes, coaches })
+    // Lịch học hằng tuần: chỉ kiểm tra khi tạo mới / mở kỳ mới / đổi thứ hoặc ngày, để sửa lớp cũ (đã qua ngày) không bị chặn.
+    if (patternActive && (freshDates || patternChanged)) problems.push(...patternProblems(form, { now: new Date() }))
     if (existing) problems.unshift(existingText(existing))
     if (problems.length) { setError(problems.join(' ')); return }
     setBusy(true); setError('')
@@ -175,6 +181,31 @@ export default function ClassFormModal({ cls, onClose }) {
     {FEATURES.coachSubjects && !coachLock && !coachRows.some(r => !r.wrongSubject) && <p className="small muted">Chưa có huấn luyện viên nào dạy bộ môn {form.subject}.</p>}
     {coachNote && <p className="small muted" role="status">{coachNote}</p>}
   </div>
+  // FEATURES.sessionPattern: chọn thứ trong tuần, BE tự sinh buổi (chưa có giờ/phòng) cho mỗi ngày khớp.
+  const patternActive = FEATURES.sessionPattern && form.sessionWeekdays.length > 0
+  const patternChanged = Boolean(original) && (serializeWeekdays(form.sessionWeekdays) !== serializeWeekdays(original.sessionWeekdays)
+    || form.startDate !== original.startDate || form.endDate !== original.endDate)
+  const toggleWeekday = code => set('sessionWeekdays', form.sessionWeekdays.includes(code) ? form.sessionWeekdays.filter(c => c !== code) : [...form.sessionWeekdays, code])
+  // Sửa lớp: chỉ liệt kê ngày MỚI (bỏ ngày lớp đã có buổi). Mở kỳ mới cũng là sửa lớp đó nên vẫn bỏ ngày đã có.
+  const ownSessions = target ? schedules.filter(s => String(s.classId) === String(target.id)) : []
+  const preview = patternActive ? previewSessions({ weekdays: form.sessionWeekdays, startDate: form.startDate, endDate: form.endDate, existingSessions: ownSessions }) : []
+  const patternCoach = coaches.find(c => String(c.id) === String(form.coachId))?.name || 'Chưa phân công'
+  const patternField = FEATURES.sessionPattern && <div className="pattern-block">
+    <span className="pattern-title">Lịch học hằng tuần</span>
+    <div className="pattern-days" role="group" aria-label="Các thứ học trong tuần">
+      {WEEKDAYS.map(w => { const on = form.sessionWeekdays.includes(w.code); return <button key={w.code} type="button" title={w.name} aria-pressed={on} className={`btn btn-sm${on ? ' btn-primary' : ''}`} onClick={() => toggleWeekday(w.code)}>{w.label}</button> })}
+    </div>
+    {!patternActive ? <p className="small muted">Không chọn thứ nào: lớp không tự tạo buổi học, có thể thêm buổi thủ công sau.</p> : <>
+      <p className="small"><strong>{creating ? 'Các buổi sẽ được tạo' : 'Các buổi mới sẽ được thêm'}</strong></p>
+      {!form.startDate || !form.endDate ? <p className="small muted">Nhập ngày bắt đầu và ngày kết thúc lớp để xem các buổi.</p>
+        : !preview.length ? <p className="small muted">{creating ? 'Không có ngày nào khớp các thứ đã chọn từ hôm nay trong khoảng ngày của lớp.' : 'Không có buổi mới nào cần thêm.'}</p>
+          : <div className="pattern-preview"><table className="table"><thead><tr><th>Thứ</th><th>Ngày</th><th>Huấn luyện viên</th></tr></thead>
+            <tbody>{preview.map(p => <tr key={p.date}><td>{p.weekdayLabel}</td><td>{formatDate(p.date)}</td><td>{patternCoach}</td></tr>)}</tbody></table></div>}
+      <p className="small"><strong>Tổng: {preview.length} buổi</strong></p>
+      <p className="small muted">Giờ, phòng và mô tả của từng buổi sẽ điền sau trong chi tiết lớp.</p>
+    </>}
+    {!creating && <p className="small muted">Khi đổi lịch: buổi tự sinh chưa chỉnh sửa mà không còn khớp lịch mới sẽ bị xóa; buổi đã chỉnh hoặc tạo tay được giữ nguyên.</p>}
+  </div>
   const warnings = classWarnings(form, { classes, original })
   return <Modal title={creating ? 'Tạo lớp mới' : reopen ? `Mở kỳ mới — ${form.classCode}` : 'Sửa lớp học'} onClose={() => { if (!busy) onClose() }} width={640}>
     <form className="form" onSubmit={submit} noValidate>
@@ -190,6 +221,7 @@ export default function ClassFormModal({ cls, onClose }) {
           {field('registrationCloseAt', timed ? 'Kết thúc đăng ký sớm lúc (ngày giờ)' : 'Kết thúc đăng ký sớm ngày', { type: regType, min: form.registrationOpenAt || (freshDates ? regMin : undefined) })}
         </>}
         {coachField}
+        {patternField}
       </fieldset>
       {warnings.map(w => <div key={w} className="alert alert-info" role="status">{w}</div>)}
       {error &&<div className="alert alert-error" role="alert">{error}</div>}

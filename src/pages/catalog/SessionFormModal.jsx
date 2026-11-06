@@ -5,6 +5,8 @@ import { FEATURES } from '../../config/features'
 import { roomMatchesSubject } from '../../validation/roomRules'
 import { NO_CLASS_COACH, SESSION_DESCRIPTION_MAX, classHasCoach, validateSchedule } from '../../validation/classRules'
 import { defaultRoomId } from '../../validation/sessionDefaults'
+import { isUnscheduled, weekdayName } from '../../validation/sessionPattern'
+import { formatDate } from '../../store/utils'
 import '../../catalog.css'
 
 // Thêm hoặc sửa một buổi học của lớp. Ô phòng chỉ liệt kê phòng hợp bộ môn của lớp. FEATURES.sessionDescription: thêm ô lộ trình / mô tả.
@@ -15,11 +17,16 @@ export default function SessionFormModal({ cls, session, onClose }) {
   const adding = !session
   const hasCoach = classHasCoach(cls)
   const classCoachId = hasCoach ? String(cls.coachId) : ''
+  // Buổi BE tự sinh chưa xếp giờ (FEATURES.sessionPattern): giữ ngày của buổi, ô giờ và phòng để trống, bắt buộc điền mới lưu.
+  const unscheduled = !adding && isUnscheduled(session)
+  const day = unscheduled ? String(session.startTime).slice(0, 10) : ''
   // coachId luôn gửi theo HLV của lớp (BE cũng ép như vậy).
   const [form, setForm] = useState(() => session
-    ? { id: session.id, classId: cls.id, roomId: session.roomId ?? '', coachId: classCoachId, startTime: String(session.startTime).slice(0, 16), endTime: String(session.endTime).slice(0, 16), description: session.description ?? '' }
+    ? { id: session.id, classId: cls.id, roomId: session.roomId ?? '', coachId: classCoachId, startTime: unscheduled ? '' : String(session.startTime).slice(0, 16), endTime: unscheduled ? '' : String(session.endTime).slice(0, 16), description: session.description ?? '' }
     : { classId: cls.id, roomId: defaultRoomId(cls.id, schedules), coachId: classCoachId, startTime: '', endTime: '', description: '' })
   const [roomLocked, setRoomLocked] = useState(() => adding && form.roomId !== '')
+  // Ô giờ (HH:mm) của buổi chưa xếp giờ → 'yyyy-MM-ddTHH:mm' theo ngày của buổi; xóa giờ thì để trống.
+  const setClock = (key, value) => setForm({ ...form, [key]: value ? `${day}T${value}` : '' })
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [roomHint, setRoomHint] = useState(false) // lỗi liên quan tới phòng đang khóa → nhắc bấm "Đổi phòng"
@@ -58,8 +65,20 @@ export default function SessionFormModal({ cls, session, onClose }) {
       <fieldset className="form api-fieldset" disabled={busy}>
         {roomField}
         {coachField}
-        <label>Ngày giờ bắt đầu<input type="datetime-local" required value={form.startTime} onChange={e => set('startTime', e.target.value)} /></label>
-        <label>Ngày giờ kết thúc<input type="datetime-local" required value={form.endTime} onChange={e => set('endTime', e.target.value)} /></label>
+        {unscheduled ? <>
+          <div className="readonly-field">
+            <span className="readonly-label">Ngày học (theo lịch học hằng tuần)</span>
+            <div className="readonly-value"><strong>{weekdayName(day)}, {formatDate(day)}</strong></div>
+          </div>
+          <div className="row-2">
+            <label>Giờ bắt đầu<input type="time" required value={form.startTime.slice(11, 16)} onChange={e => setClock('startTime', e.target.value)} /></label>
+            <label>Giờ kết thúc<input type="time" required value={form.endTime.slice(11, 16)} onChange={e => setClock('endTime', e.target.value)} /></label>
+          </div>
+          <span className="small muted">Buổi học chưa xếp giờ: cần chọn giờ và phòng để lưu.</span>
+        </> : <>
+          <label>Ngày giờ bắt đầu<input type="datetime-local" required value={form.startTime} onChange={e => set('startTime', e.target.value)} /></label>
+          <label>Ngày giờ kết thúc<input type="datetime-local" required value={form.endTime} onChange={e => set('endTime', e.target.value)} /></label>
+        </>}
         {FEATURES.sessionDescription && <label>Lộ trình / mô tả buổi học
           <textarea rows={4} maxLength={SESSION_DESCRIPTION_MAX} value={form.description} onChange={e => set('description', e.target.value)} placeholder="VD: Khởi động 10 phút, bài chính, giãn cơ..." />
           <span className="small muted">{form.description.length}/{SESSION_DESCRIPTION_MAX} ký tự</span>

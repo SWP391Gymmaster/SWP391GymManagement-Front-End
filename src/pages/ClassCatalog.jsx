@@ -9,6 +9,10 @@ import SessionFormModal from './catalog/SessionFormModal'
 import { formatDate, formatTime } from '../store/utils'
 import { FEATURES } from '../config/features'
 import { STATUS, TIME_SLOTS, EMPTY_FILTERS, buildCatalog, filterCatalog, hasActiveFilter } from '../catalog/catalogRules'
+import { isUnscheduled, weekdayName } from '../validation/sessionPattern'
+
+// Giờ của buổi: buổi BE tự sinh chưa có giờ thì ghi "Chưa xếp giờ" thay cho 00:00–00:00.
+const sessionTime = s => isUnscheduled(s) ? 'Chưa xếp giờ' : `${formatTime(s.startTime)}–${formatTime(s.endTime)}`
 
 const dmy = v => formatDate(v)
 // Mốc đăng ký sớm: có giờ thì hiện cả giờ.
@@ -43,7 +47,7 @@ function CatalogView({ available, enrolledIds = [], classStats = null, membershi
   const detail = selected && items.find(i => i.cls.id === selected)
   const set = (key, value) => setFilters({ ...filters, [key]: value })
   const coachName = id => coaches.find(c => Number(c.id) === Number(id))?.name || 'Chưa phân công'
-  const roomName = id => rooms.find(r => r.id === id)?.name || '—'
+  const roomName = id => id == null || id === '' ? 'Chưa xếp phòng' : rooms.find(r => r.id === id)?.name || '—'
   const isMember = currentUser.role === 'member'
     // Chưa mua gói hoặc gói đã hết hạn: báo và đưa hội viên tới trang Gói tập thay vì gọi BE.
   const [needPackage, setNeedPackage] = useState(false)
@@ -149,17 +153,19 @@ function CatalogView({ available, enrolledIds = [], classStats = null, membershi
           {!detail.classStat.registeredByMe && detail.canJoin && <span className="small muted">Cần đăng ký lớp trước khi đăng ký từng buổi học.</span>}
           {classMsgBox(detail.cls.id)}
         </div>}
+        {detail.sessions.length > 0 && <p className="small"><strong>Tổng số buổi: {detail.sessions.length}</strong>{detail.sessions.some(s => s.unscheduled) && <span className="muted"> · {detail.sessions.filter(s => s.unscheduled).length} buổi chưa xếp giờ</span>}</p>}
         {!detail.sessions.length ? <p className="muted">Lớp chưa có lịch học.</p> : <ul className="catalog-sessions">
           {detail.sessions.map(s => {
             const mine = enrolledIds.includes(Number(s.id))
             const blocked = !detail.sessionsOpen
             const needClass = Boolean(detail.classStat) && !detail.classStat.registeredByMe
-            const label = blocked ? STATUS[detail.status].label : needClass ? 'Cần đăng ký lớp' : s.closed ? 'Đã đóng' : s.full ? 'Đã đầy' : mine ? 'Đã đăng ký' : 'Đăng ký'
+            // Buổi chưa xếp giờ: khóa nút đăng ký với chú thích "Chưa xếp giờ".
+            const label = s.unscheduled && !s.closed ? 'Chưa xếp giờ' : blocked ? STATUS[detail.status].label : needClass ? 'Cần đăng ký lớp' : s.closed ? 'Đã đóng' : s.full ? 'Đã đầy' : mine ? 'Đã đăng ký' : 'Đăng ký'
             return <li key={s.id}>
-              <span><strong>{formatDate(s.startTime)}</strong> {formatTime(s.startTime)}–{formatTime(s.endTime)} · {roomName(s.roomId)}<br /><span className="muted">{s.closed ? 'Buổi học đã bắt đầu' : seatText(s, detail.cls.capacity)}</span>
+              <span><strong>{weekdayName(s.startTime)}, {formatDate(s.startTime)}</strong> {sessionTime(s)} · {roomName(s.roomId)} · HLV {coachName(s.coachId ?? detail.cls.coachId)}<br /><span className="muted">{s.closed ? (s.unscheduled ? 'Buổi học đã qua' : 'Buổi học đã bắt đầu') : s.unscheduled ? 'Giờ và phòng sẽ được cập nhật sau' : seatText(s, detail.cls.capacity)}</span>
                 {FEATURES.sessionDescription && s.description && <span className="catalog-session-desc small muted" title={s.description}>{s.description}</span>}</span>
               {canManage && <span className="catalog-session-actions"><button className="btn btn-sm" onClick={() => setSessionForm({ session: s })}>Sửa</button><button className="btn btn-sm btn-ghost" onClick={() => { setConfirm({ kind: 'session', item: s }); setConfirmError('') }}>Xóa</button></span>}
-              {isMember && <button className="btn btn-primary btn-sm" disabled={busy || needClass || blocked || s.closed || s.full || mine} onClick={() => enroll(s)}>{label}</button>}
+              {isMember && <button className="btn btn-primary btn-sm" disabled={busy || s.unscheduled || needClass || blocked || s.closed || s.full || mine} onClick={() => enroll(s)}>{label}</button>}
               {sessionMsg?.id === s.id && <div className={`alert alert-${sessionMsg.type} catalog-session-msg`} role={sessionMsg.type === 'error' ? 'alert' : 'status'}>{sessionMsg.text}
                 {sessionMsg.needPackage && <div><button className="btn btn-primary btn-sm" onClick={() => { setSessionMsg(null); setSelected(null); goTo?.('buy') }}>Mua gói tập</button></div>}
               </div>}
@@ -179,7 +185,7 @@ function CatalogView({ available, enrolledIds = [], classStats = null, membershi
     {sessionForm && detail && <SessionFormModal cls={detail.cls} session={sessionForm.session} onClose={() => setSessionForm(null)} />}
     {confirm && <Modal title={confirm.kind === 'unregister' ? 'Hủy đăng ký lớp' : 'Xác nhận xóa'} onClose={() => { if (!busy) setConfirm(null) }}>
       <div className="stack">
-        <p>{confirm.kind === 'unregister' ? <>Hủy đăng ký lớp <strong>{confirm.item.name}</strong>? Các buổi học sắp tới của lớp trong lịch của bạn cũng sẽ bị gỡ.</> : confirm.kind === 'class' ? <>Xóa lớp <strong>{confirm.item.name}</strong>? Lớp phải không còn buổi học nào.</> : <>Xóa buổi học ngày <strong>{formatDate(confirm.item.startTime)} {formatTime(confirm.item.startTime)}</strong>?</>}</p>
+        <p>{confirm.kind === 'unregister' ? <>Hủy đăng ký lớp <strong>{confirm.item.name}</strong>? Các buổi học sắp tới của lớp trong lịch của bạn cũng sẽ bị gỡ.</> : confirm.kind === 'class' ? <>Xóa lớp <strong>{confirm.item.name}</strong>? Lớp phải không còn buổi học nào.</> : <>Xóa buổi học ngày <strong>{formatDate(confirm.item.startTime)} {isUnscheduled(confirm.item) ? '(chưa xếp giờ)' : formatTime(confirm.item.startTime)}</strong>?</>}</p>
         {confirmError && <div className="alert alert-error" role="alert">{confirmError}</div>}
         <div className="form-actions"><button className="btn" disabled={busy} onClick={() => setConfirm(null)}>Hủy</button><button className="btn btn-primary" disabled={busy} onClick={confirm.kind === 'unregister' ? leaveClass : destroy}>{busy ? 'Đang xử lý...' : confirm.kind === 'unregister' ? 'Hủy đăng ký lớp' : 'Xóa'}</button></div>
       </div>

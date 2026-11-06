@@ -1,5 +1,6 @@
 // Luật cho trang Danh sách lớp: lọc (T2.1) và vòng đời/trạng thái lớp (T2.2). Hàm thuần để test.
 import { vietnamTime } from '../services/api.js'
+import { isUnscheduled } from '../validation/sessionPattern.js'
 
 export const STATUS = {
   upcoming: { label: 'Chưa mở', badge: 'badge-wait' },
@@ -56,17 +57,21 @@ export function buildCatalog({ classes, schedules, available = null, classStats 
       .filter((s) => Number(s.classId) === Number(cls.id))
       .sort((a, b) => a.startTime.localeCompare(b.startTime))
       .map((s) => {
-        const closed = at(s.startTime) <= now
+        // Buổi chưa xếp giờ (FEATURES.sessionPattern): chưa "bắt đầu" cho tới hết ngày của buổi, không có sĩ số
+        // (BE không trả trong danh sách còn chỗ) nên không bị tính là đầy.
+        const unscheduled = isUnscheduled(s)
+        const closed = unscheduled ? dayEnd(s.startTime.slice(0, 10)) < now : at(s.startTime) <= now
         const row = free?.get(Number(s.id))
         let registered = null
         let remaining = null
-        if (free && !closed) {
+        if (free && !closed && !unscheduled) {
           registered = row ? Number(row.registeredCount) : cls.capacity
           remaining = row ? Number(row.remainingSlots) : 0
         }
-        return { ...s, closed, registered, remaining, full: !closed && remaining === 0 }
+        return { ...s, unscheduled, closed, registered, remaining, full: !closed && remaining === 0 }
       })
     const upcoming = sessions.filter((s) => !s.closed)
+    const bookable = upcoming.filter((s) => !s.unscheduled) // buổi sắp tới đã có giờ (đăng ký được)
     const hasCounts = Boolean(free)
     const classStat = stats ? (stats.get(Number(cls.id)) || { registeredCount: 0, remainingSlots: cls.capacity, registeredByMe: false }) : null
     let status = windowStatus(cls, now)
@@ -75,9 +80,9 @@ export function buildCatalog({ classes, schedules, available = null, classStats 
       if (!sessions.length) status = 'upcoming' // chưa xếp lịch
       else if (!upcoming.length) status = 'closed'
       else if (classStat) { if (classStat.remainingSlots === 0) status = 'full' }
-      else if (hasCounts && upcoming.every((s) => s.full)) status = 'full'
+      else if (hasCounts && bookable.length && bookable.every((s) => s.full)) status = 'full'
     }
-    const next = upcoming.find((s) => !s.full) || upcoming[0] || null
+    const next = bookable.find((s) => !s.full) || bookable[0] || upcoming[0] || null
     // Khoảng ngày suy ra từ các buổi học (dùng khi BE chưa có ngày bắt đầu/kết thúc của lớp)
     const range = sessions.length
       ? { firstDate: sessions[0].startTime.slice(0, 10), lastDate: sessions[sessions.length - 1].startTime.slice(0, 10), sessionCount: sessions.length }
@@ -106,9 +111,10 @@ export function filterCatalog(items, f) {
     if (f.coachId && !item.coachIds.includes(Number(f.coachId))) return false
     if (item.status === 'closed' && !f.showClosed && f.status !== 'closed') return false
     if (f.status && item.status !== f.status) return false
-    if (f.hasSeats && item.hasCounts && !item.upcoming.some((s) => !s.full)) return false
+    if (f.hasSeats && item.hasCounts && !item.upcoming.some((s) => !s.full && !s.unscheduled)) return false
     if (f.date || f.slot) {
-      const ok = item.sessions.some((s) => (!f.date || s.startTime.slice(0, 10) === f.date) && (!f.slot || slotOf(s.startTime) === f.slot))
+      // Buổi chưa xếp giờ chỉ khớp lọc theo ngày, không thuộc khung giờ nào.
+      const ok = item.sessions.some((s) => (!f.date || s.startTime.slice(0, 10) === f.date) && (!f.slot || (!s.unscheduled && slotOf(s.startTime) === f.slot)))
       if (!ok) return false
     }
     return true

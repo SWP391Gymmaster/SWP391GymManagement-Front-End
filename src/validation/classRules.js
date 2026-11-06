@@ -4,6 +4,7 @@ import { validateClassDates, vnStamp } from './classDates.js'
 import { codePrefix, MAX_CLASSES_PER_COACH } from '../config/classDefaults.js'
 import { coachIsFull, coachLoad, findDuplicate, findOverlaps } from './classDuplicates.js'
 import { FEATURES } from '../config/features.js'
+import { isUnscheduled } from './sessionPattern.js'
 
 export { validateClassDates }
 
@@ -119,6 +120,7 @@ function conflicts(form, cls, room, { schedules = [], classes = [] }) {
   let coachDone = false
   for (const s of schedules) {
     if (form.id && String(s.id) === String(form.id)) continue
+    if (isUnscheduled(s)) continue // buổi chưa xếp giờ không tính trùng phòng/coach cho tới khi được điền giờ
     if (!(minute(s.startTime) < end && start < minute(s.endTime))) continue
     const when = `${hhmm(s.startTime)}–${hhmm(s.endTime)} ngày ${dm(s.startTime)}`
     if (!roomDone && room && String(s.roomId) === String(room.id)) {

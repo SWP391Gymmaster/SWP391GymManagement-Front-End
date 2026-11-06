@@ -12,4 +12,7 @@ export const FEATURES = {
   coachSubjects: true,
   // true: mỗi buổi học có lộ trình / mô tả. BE cần thêm description cho Schedule và trả về trong GET /api/schedules.
   sessionDescription: true,
+  // true: lớp có "Lịch học hằng tuần" (GymClass.sessionWeekdays, ví dụ "MON,WED,FRI"); BE tự sinh buổi chưa có giờ/phòng
+  // cho mỗi ngày khớp thứ trong khoảng ngày của lớp. false: form lớp như cũ, không gửi sessionWeekdays.
+  sessionPattern: true,
 }

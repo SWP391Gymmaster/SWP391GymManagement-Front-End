@@ -4,6 +4,7 @@ import { Delta, ShareList } from '../../components/Revenue'
 import { ErrorBox, Loading } from '../../components/Status'
 import { classApi, coachApi, paymentApi, scheduleApi } from '../../api/services'
 import useApi from '../../api/useApi'
+import { isUnscheduled } from '../../validation/sessionPattern'
 import {
   addMonths,
   completedPayments,
@@ -171,14 +172,19 @@ function ProgressReport({ month }) {
   if (!data) return <ErrorBox error={error} onRetry={reload} />
 
   const now = nowVN()
-  const isDone = (s) => s.endTime <= now
+  // Buổi chưa xếp giờ (FEATURES.sessionPattern, startTime === endTime) không tính là đã diễn ra / đã bắt đầu;
+  // nếu ngày đó đã qua mà vẫn chưa xếp giờ thì cũng không còn là buổi sắp tới.
+  const today = now.slice(0, 10)
+  const isDone = (s) => !isUnscheduled(s) && s.endTime <= now
+  const isStarted = (s) => !isUnscheduled(s) && s.startTime <= now
+  const isUpcoming = (s) => (isUnscheduled(s) ? s.startTime.slice(0, 10) >= today : s.endTime > now)
   const coachName = (id) => data.coaches.find((c) => c.id === id)?.fullName || (id ? 'Coach #' + id : '—')
 
   const classRows = data.classes.map((c) => {
     const own = data.schedules.filter((s) => s.classId === c.id).sort((a, b) => a.startTime.localeCompare(b.startTime))
     const doneCount = own.filter(isDone).length
     const pct = own.length ? Math.round((doneCount / own.length) * 100) : 0
-    const state = !own.length ? 'empty' : doneCount === own.length ? 'finished' : own[0].startTime > now ? 'notstarted' : 'running'
+    const state = !own.length ? 'empty' : doneCount === own.length ? 'finished' : own.some(isStarted) ? 'running' : 'notstarted'
     return { c, own, doneCount, pct, state }
   })
   const STATE = {
@@ -193,7 +199,7 @@ function ProgressReport({ month }) {
     const own = data.schedules.filter((s) => s.coachId === co.id)
     const inMonth = own.filter((s) => s.startTime.slice(0, 7) === month)
     const doneInMonth = inMonth.filter(isDone)
-    const upcoming = own.filter((s) => !isDone(s)).sort((a, b) => a.startTime.localeCompare(b.startTime))
+    const upcoming = own.filter(isUpcoming).sort((a, b) => a.startTime.localeCompare(b.startTime))
     return {
       co,
       classes: new Set(own.map((s) => s.classId)).size,
@@ -268,7 +274,7 @@ function ProgressReport({ month }) {
                 <td>{r.doneInMonth}/{r.inMonth}</td>
                 <td>{fmtHours(r.hours)} / {fmtHours(r.plannedHours)} giờ</td>
                 <td>{r.upcoming.length}</td>
-                <td className="nowrap">{r.upcoming[0] ? `${formatDate(r.upcoming[0].startTime)} ${formatTime(r.upcoming[0].startTime)}` : '—'}</td>
+                <td className="nowrap">{r.upcoming[0] ? `${formatDate(r.upcoming[0].startTime)} ${isUnscheduled(r.upcoming[0]) ? '(chưa xếp giờ)' : formatTime(r.upcoming[0].startTime)}` : '—'}</td>
               </tr>
             ))}
             {coachRows.length === 0 && <tr><td colSpan="6" className="center muted">Chưa có Coach nào</td></tr>}

@@ -1,4 +1,5 @@
 ﻿// All Spring controllers share this transport. /backend is proxied by Vite in development.
+import { isUnscheduled } from '../validation/sessionPattern.js'
 export class ApiError extends Error {
   // code = thông điệp gốc từ BE (tiếng Anh), dùng để FE nhận diện loại lỗi
   constructor(message, status = 0, details = {}, code = '') { super(message); this.name = 'ApiError'; this.status = status; this.details = details; this.code = code }
@@ -45,6 +46,12 @@ const errors = {
   'Class has no coach assigned': 'Lớp chưa có huấn luyện viên, hãy gán coach cho lớp trước.',
   'Cannot change the coach of a class that already has sessions or registrations': 'Lớp đã mở, không được phép thay đổi giáo viên',
   'Coach not found': 'Không tìm thấy huấn luyện viên.',
+  // FEATURES.sessionPattern: BE tự sinh buổi theo lịch học hằng tuần của lớp.
+  'Start date and end date are required to generate sessions': 'Cần nhập ngày bắt đầu và ngày kết thúc lớp để tạo lịch học hằng tuần.',
+  'Coach is required to generate sessions': 'Cần chọn huấn luyện viên để tạo lịch học hằng tuần.',
+  'No session falls within the class dates': 'Không có ngày nào khớp các thứ đã chọn trong khoảng ngày của lớp.',
+  'Session time is not set yet': 'Buổi học chưa xếp giờ, chưa thể đăng ký.',
+  'Room is required': 'Vui lòng chọn phòng cho buổi học.',
   'Schedule has enrollments': 'Không thể xóa buổi học đã có hội viên đăng ký.',
   'Class has schedules with enrollments': 'Không thể xóa lớp đã có hội viên đăng ký.',
   'Class still has schedules, delete them first': 'Hãy xóa các buổi học trước khi xóa lớp.',
@@ -188,14 +195,17 @@ export function mapSession(value, { classes = [], rooms = [], coaches = [], sche
   const cls = classes.find(c => c.id === value.classId) || {}
   const startTime = value.startTime || schedule.startTime
   const endTime = value.endTime || schedule.endTime
+  // Buổi BE tự sinh chưa có giờ/phòng (startTime === endTime): không đăng ký được.
+  const unscheduled = isUnscheduled({ startTime, endTime })
+  const roomId = value.roomId ?? schedule.roomId
   return {
     id: value.scheduleId ?? value.id, classId: value.classId, name: value.className || cls.name || '—', subject: value.subject || cls.subject || '—',
-    date: startTime.slice(0, 10), time: `${startTime.slice(11, 16)}–${endTime.slice(11, 16)}`,
+    date: startTime.slice(0, 10), time: unscheduled ? 'Chưa xếp giờ' : `${startTime.slice(11, 16)}–${endTime.slice(11, 16)}`, unscheduled,
     startTime: vietnamTime(startTime), endTime: vietnamTime(endTime),
     coachName: coaches.find(c => c.id === (value.coachId ?? schedule.coachId))?.name || '—',
-    roomName: rooms.find(r => r.id === (value.roomId ?? schedule.roomId))?.name || '—',
+    roomName: rooms.find(r => r.id === roomId)?.name || (roomId == null || roomId === '' ? 'Chưa xếp phòng' : '—'),
     capacity: value.capacity ?? cls.capacity, registeredCount: value.registeredCount, remainingSlots: value.remainingSlots,
-    allowed: !value.registeredByMe && value.remainingSlots !== 0 && new Date(vietnamTime(startTime)) > new Date(),
-    reason: value.registeredByMe ? 'Bạn đã đăng ký buổi học này.' : value.remainingSlots === 0 ? 'Buổi học đã đủ chỗ.' : '',
+    allowed: !unscheduled && !value.registeredByMe && value.remainingSlots !== 0 && new Date(vietnamTime(startTime)) > new Date(),
+    reason: value.registeredByMe ? 'Bạn đã đăng ký buổi học này.' : unscheduled ? 'Chưa xếp giờ' : value.remainingSlots === 0 ? 'Buổi học đã đủ chỗ.' : '',
   }
 }
