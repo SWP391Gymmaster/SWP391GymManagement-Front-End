@@ -8,6 +8,7 @@ import ManagerDashboard from './pages/manager/Dashboard'
 import Reports from './pages/manager/Reports'
 import Packages from './pages/manager/Packages'
 import Rooms from './pages/manager/Rooms'
+import CoachSubjects from './pages/manager/CoachSubjects'
 import ClassCatalog from './pages/ClassCatalog'
 import MemberHome from './pages/member/MemberHome'
 import Checkout from './pages/member/Checkout'
@@ -41,6 +42,7 @@ const MENUS = {
     { key: 'packages', label: 'Gói thành viên', icon: '🎫', el: Packages },
     { key: 'rooms', label: 'Phòng tập', icon: '🏢', el: Rooms },
     { key: 'catalog', label: 'Danh sách lớp', icon: '🗂️', el: ClassCatalog },
+    { key: 'coach-subjects', label: 'Phân công bộ môn', icon: '🏷️', el: CoachSubjects },
     { key: 'payments', label: 'Thanh toán & Hóa đơn', icon: '🧾', el: Payments },
   ],
   receptionist: [

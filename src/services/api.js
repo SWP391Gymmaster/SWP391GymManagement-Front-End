@@ -128,8 +128,8 @@ export function createControllerApi(request) {
     },
     classes: resource('/api/classes'), schedules: resource('/api/schedules'),
     coaches: () => request('/api/coaches'),
-    // FEATURES.coachSubjects: gán bộ môn cho coach, BE trả coach kèm mảng subjects.
-    saveCoachSubjects: (id, subjects) => request(`/api/admin/coaches/${encodeURIComponent(id)}/subjects`, { method: 'PUT', body: { subjects } }),
+    // FEATURES.coachSubjects: manager gán bộ môn cho coach, BE trả coach kèm mảng subjects.
+    saveCoachSubjects: (id, subjects) => request(`/api/coaches/${encodeURIComponent(id)}/subjects`, { method: 'PUT', body: { subjects } }),
     adminUsers: {
       list: ({ page = 0, size = 20, q = '', role = '', enabled = '', emailVerified = '' } = {}) => {
         const query = new URLSearchParams({ page, size })

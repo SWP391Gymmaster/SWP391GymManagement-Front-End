@@ -8,7 +8,7 @@ export const FEATURES = {
   // true: hội viên đăng ký LỚP trước, rồi mới đăng ký được buổi học của lớp đó (BE cần API đăng ký lớp, xem trang yêu cầu BE).
   classRegistration: true,
   // true: coach chỉ dạy bộ môn của mình. BE cần trả mảng subjects cho từng coach ở GET /api/coaches (ví dụ ["Yoga","Pilates"])
-  // và có PUT /api/admin/coaches/{id}/subjects; mapUser trong services/api.js giữ trường subjects.
+  // và có PUT /api/coaches/{id}/subjects (manager); mapUser trong services/api.js giữ trường subjects.
   coachSubjects: true,
   // true: mỗi buổi học có lộ trình / mô tả. BE cần thêm description cho Schedule và trả về trong GET /api/schedules.
   sessionDescription: true,

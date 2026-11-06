@@ -4,9 +4,6 @@ import { usePreferences } from '../../preferences/context'
 import Modal from '../../components/Modal'
 import Icon from '../../components/Icon'
 import { PASSWORD_HINT } from '../../services/publicService'
-import { FEATURES } from '../../config/features'
-import { SUBJECTS } from '../../data/seed'
-import { createdUserId } from '../../services/api'
 
 const ROLE_OPTIONS = [
   { value: 'MANAGER', label: 'Manager' },
@@ -30,12 +27,11 @@ const EMPTY_FORM = {
   confirm: '',
   phone: '',
   role: 'MANAGER',
-  subjects: [], // FEATURES.coachSubjects: bộ môn coach được dạy, lưu riêng sau khi tạo tài khoản
 }
 
+// Bộ môn của coach do manager phân công ở trang "Phân công bộ môn" (pages/manager/CoachSubjects.jsx).
 export default function StaffManagement() {
-  // storeUsers: danh sách coach (kèm subjects) từ GET /api/coaches, dùng khi dòng /api/admin/users không có subjects.
-  const { request, saveCoachSubjects, users: storeUsers } = useStore()
+  const { request } = useStore()
   const { t } = usePreferences()
 
   const [users, setUsers] = useState([])
@@ -53,12 +49,8 @@ export default function StaffManagement() {
   const [formError, setFormError] = useState('')
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
-  const [subjectError, setSubjectError] = useState('') // tạo tài khoản xong nhưng lưu bộ môn coach thất bại
-  const withSubjects = FEATURES.coachSubjects && form.role === 'COACH'
 
   const [statusModal, setStatusModal] = useState(null)
-  const [subjectModal, setSubjectModal] = useState(null) // { user, subjects }: sửa bộ môn của coach (FEATURES.coachSubjects)
-  const [subjectModalError, setSubjectModalError] = useState('')
   const lock = useRef(false)
 
   // Load users
@@ -106,7 +98,6 @@ export default function StaffManagement() {
     )
       errors.password = PASSWORD_HINT
     if (form.confirm !== form.password) errors.confirm = 'Mật khẩu xác nhận không khớp.'
-    if (withSubjects && !form.subjects.length) errors.subjects = 'Chọn ít nhất một bộ môn coach được dạy.'
     return errors
   }
 
@@ -120,9 +111,8 @@ export default function StaffManagement() {
     lock.current = true
     setBusy(true)
     setFormError('')
-    setSubjectError('')
     try {
-      const created = await request('/api/admin/users', {
+      await request('/api/admin/users', {
         method: 'POST',
         body: {
           userName: form.userName.trim(),
@@ -133,16 +123,6 @@ export default function StaffManagement() {
           role: form.role,
         },
       })
-      // Coach: gán bộ môn bằng API riêng sau khi tạo tài khoản. Lỗi ở bước này không hủy tài khoản đã tạo.
-      if (withSubjects) {
-        try {
-          const id = createdUserId(created)
-          if (id == null) throw new Error('máy chủ không trả về mã tài khoản.')
-          await saveCoachSubjects(id, form.subjects)
-        } catch (err) {
-          setSubjectError(`Đã tạo tài khoản ${form.fullName.trim()} nhưng chưa lưu được bộ môn: ${err.message}`)
-        }
-      }
       setCreating(false)
       setForm({ ...EMPTY_FORM })
       setFormErrors({})
@@ -182,41 +162,6 @@ export default function StaffManagement() {
     setFormErrors({ ...formErrors, [key]: '' })
   }
 
-  // Bộ môn hiện tại của coach: ưu tiên user.subjects của dòng, không có thì lấy từ danh sách /api/coaches theo id.
-  const subjectsOf = (user) =>
-    Array.isArray(user.subjects) ? user.subjects : storeUsers.find((u) => String(u.id) === String(user.id))?.subjects || []
-
-  const openSubjects = (user) => {
-    setSubjectModal({ user, subjects: [...subjectsOf(user)] })
-    setSubjectModalError('')
-  }
-
-  // Cho phép lưu danh sách rỗng (xóa hết bộ môn của coach).
-  const handleSaveSubjects = async () => {
-    if (lock.current || !subjectModal) return
-    lock.current = true
-    setBusy(true)
-    setSubjectModalError('')
-    try {
-      const result = await saveCoachSubjects(subjectModal.user.id, subjectModal.subjects)
-      const saved = Array.isArray(result?.subjects) ? result.subjects : subjectModal.subjects
-      setUsers(users.map((u) => (u.id === subjectModal.user.id ? { ...u, subjects: saved } : u)))
-      setNotice(`Đã cập nhật bộ môn cho ${subjectModal.user.fullName}.`)
-      setSubjectModal(null)
-    } catch (err) {
-      setSubjectModalError(err.message)
-    } finally {
-      lock.current = false
-      setBusy(false)
-    }
-  }
-
-  const toggleSubject = (subject) => {
-    const subjects = form.subjects.includes(subject) ? form.subjects.filter((s) => s !== subject) : [...form.subjects, subject]
-    setForm({ ...form, subjects })
-    setFormErrors({ ...formErrors, subjects: '' })
-  }
-
   const filteredUsers = users
 
   return (
@@ -230,11 +175,6 @@ export default function StaffManagement() {
       {notice && (
         <div className="alert alert-success" role="status">
           {t(notice)}
-        </div>
-      )}
-      {subjectError && (
-        <div className="alert alert-error" role="alert">
-          {t(subjectError)}
         </div>
       )}
 
@@ -360,11 +300,6 @@ export default function StaffManagement() {
                         {t(user.enabled ? 'Khoá' : 'Mở khoá')}
                       </button>
                     )}
-                    {FEATURES.coachSubjects && user.role === 'COACH' && (
-                      <button className="btn btn-sm" style={{ marginLeft: 6 }} disabled={busy} onClick={() => openSubjects(user)}>
-                        {t('Bộ môn')}
-                      </button>
-                    )}
                   </td>
                 </tr>
               ))}
@@ -425,23 +360,6 @@ export default function StaffManagement() {
                 </span>
               </div>
 
-              {withSubjects && (
-                <div className="staff-subjects">
-                  <span>
-                    {t('Bộ môn được dạy')} <span className="danger">*</span>
-                  </span>
-                  <div className="staff-subject-list">
-                    {SUBJECTS.map((subject) => (
-                      <label key={subject} className="check">
-                        <input type="checkbox" checked={form.subjects.includes(subject)} onChange={() => toggleSubject(subject)} />
-                        {subject}
-                      </label>
-                    ))}
-                  </div>
-                  {formErrors.subjects && <span className="field-error">{t(formErrors.subjects)}</span>}
-                </div>
-              )}
-
               <div className="row-2">
                 <label>
                   {t('Tên đăng nhập')} <span className="danger">*</span>
@@ -499,54 +417,6 @@ export default function StaffManagement() {
               </button>
             </div>
           </form>
-        </Modal>
-      )}
-
-      {/* Modal bộ môn của coach (FEATURES.coachSubjects) */}
-      {subjectModal && (
-        <Modal title="Bộ môn được dạy" onClose={() => !busy && setSubjectModal(null)}>
-          <div className="stack">
-            <p>
-              {t('Huấn luyện viên')} <strong>{subjectModal.user.fullName}</strong>
-            </p>
-            <fieldset className="form api-fieldset" disabled={busy}>
-              <div className="staff-subject-list">
-                {SUBJECTS.map((subject) => (
-                  <label key={subject} className="check">
-                    <input
-                      type="checkbox"
-                      checked={subjectModal.subjects.includes(subject)}
-                      onChange={() =>
-                        setSubjectModal({
-                          ...subjectModal,
-                          subjects: subjectModal.subjects.includes(subject)
-                            ? subjectModal.subjects.filter((s) => s !== subject)
-                            : [...subjectModal.subjects, subject],
-                        })
-                      }
-                    />
-                    {subject}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-            {!subjectModal.subjects.length && (
-              <p className="small muted">{t('Không chọn bộ môn nào: coach sẽ không thể được phân công lớp.')}</p>
-            )}
-            {subjectModalError && (
-              <div className="alert alert-error" role="alert">
-                {t(subjectModalError)}
-              </div>
-            )}
-            <div className="form-actions">
-              <button className="btn" disabled={busy} onClick={() => setSubjectModal(null)}>
-                {t('Hủy')}
-              </button>
-              <button className="btn btn-primary" disabled={busy} onClick={handleSaveSubjects}>
-                {t(busy ? 'Đang xử lý...' : 'Lưu bộ môn')}
-              </button>
-            </div>
-          </div>
         </Modal>
       )}
 
