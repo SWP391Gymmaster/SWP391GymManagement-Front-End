@@ -233,11 +233,12 @@ export function createBackendStore({ baseUrl = '/backend', sessionStorage = glob
     },
     deletePackage: id => remove('packages', 'packages', id),
     saveRoom: room => save('rooms', 'rooms', room, { roomCode: normalizeCode(room.roomCode), name: room.name.trim(), capacity: Number(room.capacity), type: room.type }),    deleteRoom: id => remove('rooms', 'rooms', id),
+    // Chỉ gửi hạn đăng ký registrationCloseAt (null = không đặt hạn); registrationOpenAt không còn dùng, BE luôn đặt null.
     // FEATURES.sessionPattern: gửi sessionWeekdays ("MON,WED", "" = không tự sinh). BE có thể vừa sinh/xóa buổi,
     // nên tải lại ngầm để các buổi mới xuất hiện ngay (lỗi tải ngầm không làm hỏng việc lưu lớp đã thành công).
     async saveClass(cls) {
       const item = await save('classes', 'classes', cls, { classCode: normalizeCode(cls.classCode), name: cls.name.trim(), subject: cls.subject, description: cls.description || '', level: cls.level ?? null, capacity: Number(cls.capacity), coachId: cls.coachId ? Number(cls.coachId) : null,
-        ...(FEATURES.classDates && { startDate: cls.startDate || null, endDate: cls.endDate || null, registrationOpenAt: toPayloadStamp(cls.registrationOpenAt, FEATURES.registrationTimes), registrationCloseAt: toPayloadStamp(cls.registrationCloseAt, FEATURES.registrationTimes) }),
+        ...(FEATURES.classDates && { startDate: cls.startDate || null, endDate: cls.endDate || null, registrationCloseAt: toPayloadStamp(cls.registrationCloseAt, FEATURES.registrationTimes) }),
         ...(FEATURES.sessionPattern && { sessionWeekdays: serializeWeekdays(cls.sessionWeekdays) }) }, mapClass)
       await refresh({ silent: true })
       return item

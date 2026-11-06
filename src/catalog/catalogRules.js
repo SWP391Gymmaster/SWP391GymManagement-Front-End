@@ -2,10 +2,13 @@
 import { vietnamTime } from '../services/api.js'
 import { isUnscheduled } from '../validation/sessionPattern.js'
 
+// upcoming = lớp chưa có buổi học nào (chưa xếp lịch). expired / started = lớp chưa kết thúc nhưng không còn nhận đăng ký lớp.
 export const STATUS = {
   upcoming: { label: 'Chưa mở', badge: 'badge-wait' },
   open: { label: 'Đang mở', badge: 'badge-green' },
   full: { label: 'Đã đầy', badge: 'badge-red' },
+  expired: { label: 'Hết hạn đăng ký', badge: 'badge-amber' },
+  started: { label: 'Đã bắt đầu', badge: 'badge-blue' },
   closed: { label: 'Đã đóng', badge: 'badge-gray' },
 }
 
@@ -18,32 +21,47 @@ export const TIME_SLOTS = [
 export const EMPTY_FILTERS = { subject: '', coachId: '', date: '', slot: '', status: '', hasSeats: false, showClosed: false }
 
 const at = (value) => new Date(vietnamTime(value))
-// Mốc thời gian đăng ký sớm: BE có thể trả ngày (yyyy-MM-dd) hoặc ngày giờ (yyyy-MM-ddTHH:mm:ss).
-// Chỉ có ngày thì mốc mở là 00:00 và mốc đóng là hết ngày đó; có giờ thì dùng đúng giờ đó.
 const hasTime = (value) => String(value).length > 10
-const dayStart = (value) => (!value ? null : hasTime(value) ? at(`${String(value).slice(0, 16)}:00`) : at(`${String(value).slice(0, 10)}T00:00:00`))
+const dayStart = (value) => (!value ? null : at(`${String(value).slice(0, 10)}T00:00:00`))
 const dayEnd = (value) => (!value ? null : hasTime(value) ? at(`${String(value).slice(0, 16)}:59`) : at(`${String(value).slice(0, 10)}T23:59:59`))
+// Hạn đăng ký (registrationCloseAt): có giờ thì đúng phút đó (bây giờ <= hạn vẫn được); lớp cũ chỉ có ngày thì hết ngày đó.
+// registrationOpenAt không còn dùng (BE luôn đặt null) nên bỏ qua.
+const deadlineOf = (cls) => {
+  const value = cls?.registrationCloseAt
+  return !value ? null : hasTime(value) ? at(`${String(value).slice(0, 16)}:00`) : at(`${String(value).slice(0, 10)}T23:59:59`)
+}
+
+// Lớp đã bắt đầu: bây giờ >= 00:00 ngày bắt đầu (giờ Việt Nam). Lớp chưa có ngày bắt đầu thì coi là chưa bắt đầu.
+export const classStarted = (cls, now = new Date()) => { const start = dayStart(cls?.startDate); return Boolean(start && now >= start) }
+export const classEnded = (cls, now = new Date()) => { const end = dayEnd(cls?.endDate); return Boolean(end && now > end) }
+// Đã quá hạn đăng ký (chỉ khi có đặt hạn).
+export const deadlinePassed = (cls, now = new Date()) => { const deadline = deadlineOf(cls); return Boolean(deadline && now > deadline) }
+
+// Đúng quy tắc BE: đăng ký LỚP được khi (chưa đặt hạn hoặc bây giờ <= hạn) VÀ lớp chưa bắt đầu VÀ lớp chưa kết thúc.
+export const registrationOpen = (cls, now = new Date()) => !deadlinePassed(cls, now) && !classStarted(cls, now) && !classEnded(cls, now)
 
 // Vòng đời của lớp theo ngày (chỉ có tác dụng khi BE đã trả các trường ngày):
-//  - Quá ngày kết thúc lớp             → closed   (Đã đóng, mặc định ẩn)
-//  - Trước/trong thời gian đăng ký sớm → upcoming (Chưa mở)
-//  - Sau khi đăng ký sớm kết thúc      → null     (rồi xét theo buổi học/chỗ trống: Đang mở hoặc Đã đầy)
+//  - Quá ngày kết thúc lớp                    → closed  (Đã đóng, mặc định ẩn)
+//  - Lớp đã bắt đầu (chưa kết thúc)           → started (Đã bắt đầu)
+//  - Chưa bắt đầu nhưng đã quá hạn đăng ký    → expired (Hết hạn đăng ký)
+//  - Còn nhận đăng ký                         → null    (rồi xét theo buổi học/chỗ trống: Chưa mở / Đang mở / Đã đầy)
 export function windowStatus(cls, now) {
-  const open = dayStart(cls.registrationOpenAt)
-  const closeEnd = dayEnd(cls.registrationCloseAt)
-  const end = dayEnd(cls.endDate)
-  if (end && now > end) return 'closed'
-  if ((open && now < open) || (closeEnd && now <= closeEnd)) return 'upcoming'
+  if (classEnded(cls, now)) return 'closed'
+  if (classStarted(cls, now)) return 'started'
+  if (deadlinePassed(cls, now)) return 'expired'
   return null
 }
 
-// Hội viên được đăng ký LỚP không: lớp đang mở thì được; lớp chưa mở chỉ được khi đã tới giờ mở đăng ký sớm.
-// (Đăng ký buổi học còn chặt hơn: chỉ khi lớp đã mở thật, xem sessionsOpen trong buildCatalog.)
+// Hội viên được đăng ký LỚP không: đúng registrationOpen và lớp chưa đóng (lớp cũ không có ngày thì đóng khi hết buổi).
 export function canRegister(cls, status, now) {
-  if (status === 'open') return true
-  if (status !== 'upcoming') return false
-  const open = dayStart(cls.registrationOpenAt)
-  return Boolean(open && now >= open)
+  return status !== 'closed' && registrationOpen(cls, now)
+}
+
+// Đăng ký từng BUỔI (cách cũ, BE chưa đổi): mở khi lớp chưa đóng và không còn trong hạn đăng ký lớp
+// (chưa đặt hạn thì mở luôn, như BE hiện tại).
+export function sessionRegistrationOpen(cls, status, now) {
+  if (status === 'closed') return false
+  return !deadlineOf(cls) || deadlinePassed(cls, now) || classStarted(cls, now)
 }
 
 // available: danh sách buổi còn chỗ do BE trả (chỉ hội viên có); null nếu chưa biết sĩ số.
@@ -88,9 +106,9 @@ export function buildCatalog({ classes, schedules, available = null, classStats 
       ? { firstDate: sessions[0].startTime.slice(0, 10), lastDate: sessions[sessions.length - 1].startTime.slice(0, 10), sessionCount: sessions.length }
       : { firstDate: '', lastDate: '', sessionCount: 0 }
     const timeOk = canRegister(cls, status, now)
-    // Đăng ký BUỔI HỌC chỉ mở khi lớp đã mở thật (sau khi đăng ký sớm kết thúc). Trong thời gian đăng ký sớm chỉ đăng ký được LỚP.
-    const sessionsOpen = status === 'open' || status === 'full'
-    // Đăng ký LỚP: trong thời gian cho phép, lớp còn chỗ và hội viên chưa đăng ký lớp.
+    // Đăng ký BUỔI HỌC: mở sau hạn đăng ký lớp (xem sessionRegistrationOpen); buổi chưa xếp giờ vẫn khóa riêng ở giao diện.
+    const sessionsOpen = sessionRegistrationOpen(cls, status, now)
+    // Đăng ký LỚP: trong hạn (registrationOpen), lớp còn chỗ và hội viên chưa đăng ký lớp.
     const canJoin = Boolean(classStat) && timeOk && !classStat.registeredByMe && classStat.remainingSlots > 0
     return {
       cls, sessions, upcoming, next, status, canRegister: timeOk, sessionsOpen, classStat, canJoin, hasCounts, ...range,

@@ -8,15 +8,18 @@ import ClassFormModal from './catalog/ClassFormModal'
 import SessionFormModal from './catalog/SessionFormModal'
 import { formatDate, formatTime } from '../store/utils'
 import { FEATURES } from '../config/features'
-import { STATUS, TIME_SLOTS, EMPTY_FILTERS, buildCatalog, filterCatalog, hasActiveFilter } from '../catalog/catalogRules'
+import { STATUS, TIME_SLOTS, EMPTY_FILTERS, buildCatalog, classStarted, deadlinePassed, filterCatalog, hasActiveFilter } from '../catalog/catalogRules'
 import { isUnscheduled, weekdayName } from '../validation/sessionPattern'
 
 // Giờ của buổi: buổi BE tự sinh chưa có giờ thì ghi "Chưa xếp giờ" thay cho 00:00–00:00.
 const sessionTime = s => isUnscheduled(s) ? 'Chưa xếp giờ' : `${formatTime(s.startTime)}–${formatTime(s.endTime)}`
 
 const dmy = v => formatDate(v)
-// Mốc đăng ký sớm: có giờ thì hiện cả giờ.
+// Hạn đăng ký: có giờ thì hiện dd/MM/yyyy HH:mm. registrationOpenAt của lớp cũ bị bỏ qua.
 const stamp = v => v && String(v).length > 10 ? `${formatDate(v)} ${String(v).slice(11, 16)}` : dmy(v)
+const deadlineText = cls => cls.registrationCloseAt ? stamp(cls.registrationCloseAt) : 'Không giới hạn đến khi lớp bắt đầu'
+// Lý do không đăng ký lớp được (theo trạng thái lớp).
+const closedReason = status => status === 'started' ? 'Lớp đã bắt đầu' : status === 'closed' ? 'Lớp đã đóng' : 'Đã hết hạn đăng ký'
 const seatText = (s, capacity) => s.remaining == null ? `Sĩ số tối đa ${capacity}` : `Còn ${s.remaining}/${capacity} chỗ`
 
 // Lỗi do chưa có gói / gói không còn hiệu lực (BE trả "Membership package ...", bản demo trả câu tiếng Việt có "gói tập")
@@ -33,11 +36,11 @@ function CatalogView({ available, enrolledIds = [], classStats = null, membershi
   const [sessionMsg, setSessionMsg] = useState(null)
   const [classMsg, setClassMsg] = useState(null) // tương tự sessionMsg, cho đăng ký lớp
   // Quản lý (chỉ Manager, BE chỉ cho Manager ghi): form lớp, form buổi học, xác nhận xóa
-  const [classForm, setClassForm] = useState(null) // { cls } — cls = null nghĩa là tạo mới
+  const [classForm, setClassForm] = useState(null) // { cls, focusDeadline? } — cls = null nghĩa là tạo mới
   const [sessionForm, setSessionForm] = useState(null) // { session } — session = null nghĩa là thêm mới
   const [confirm, setConfirm] = useState(null) // { kind: 'class' | 'session', item }
   const [confirmError, setConfirmError] = useState('')
-  // Tự cập nhật mỗi phút để thẻ chuyển trạng thái (Chưa mở → Đang mở) mà không cần tải lại trang
+  // Tự cập nhật mỗi phút để thẻ chuyển trạng thái (Đang mở → Hết hạn đăng ký → Đã bắt đầu) mà không cần tải lại trang
   const [now, setNow] = useState(() => new Date())
   useEffect(() => { const timer = setInterval(() => setNow(new Date()), 60000); return () => clearInterval(timer) }, [])
   const coaches = users.filter(u => u.role === 'coach')
@@ -53,6 +56,11 @@ function CatalogView({ available, enrolledIds = [], classStats = null, membershi
   const [needPackage, setNeedPackage] = useState(false)
   const lacksPackage = isMember && (membership?.status === 'none' || membership?.status === 'expired')
   const canManage = currentUser.role === 'manager'
+  // Lối tắt "Gia hạn" (manager): lớp đã đặt hạn và chưa bắt đầu → mở form sửa lớp, con trỏ ở ô hạn đăng ký.
+  const canExtend = (cls, status) => canManage && Boolean(cls.registrationCloseAt) && status !== 'closed' && !classStarted(cls, now)
+  const extendButton = (cls, status) => canExtend(cls, status) && <button className="btn btn-sm" onClick={() => setClassForm({ cls, focusDeadline: true })}>Gia hạn</button>
+  // Hạn đăng ký: quá hạn thì nổi bật "Đã hết hạn đăng ký".
+  const deadlineLine = cls => <>{deadlineText(cls)}{deadlinePassed(cls, now) && <> <span className="badge badge-red">Đã hết hạn đăng ký</span></>}</>
   const enroll = async session => {
     if (busy) return
     if (lacksPackage) { setNeedPackage(true); return }
@@ -65,8 +73,8 @@ function CatalogView({ available, enrolledIds = [], classStats = null, membershi
     if (busy) return
     if (lacksPackage) { setNeedPackage(true); return }
     setBusy(true); setError(''); setNotice(''); setClassMsg(null)
-    const early = items.find(i => i.cls.id === cls.id)?.status === 'upcoming'
-    try { await memberService.registerClass(cls.id); setClassMsg({ id: cls.id, type: 'success', text: early ? `Bạn đã đăng ký sớm lớp ${cls.name}.` : `Đã đăng ký lớp ${cls.name}. Bạn có thể đăng ký các buổi học của lớp.` }) }
+    const sessionsLater = !items.find(i => i.cls.id === cls.id)?.sessionsOpen
+    try { await memberService.registerClass(cls.id); setClassMsg({ id: cls.id, type: 'success', text: sessionsLater ? `Đã đăng ký lớp ${cls.name}. Đăng ký từng buổi học sẽ mở sau hạn đăng ký lớp.` : `Đã đăng ký lớp ${cls.name}. Bạn có thể đăng ký các buổi học của lớp.` }) }
     catch (err) { setClassMsg({ id: cls.id, type: 'error', text: err.message, needPackage: isPackageError(err) }) } finally { setBusy(false) }
   }
   // Kết quả đăng ký lớp hiện ngay trên thẻ lớp / trong chi tiết lớp, kèm nút mua gói khi lỗi do gói tập
@@ -108,21 +116,16 @@ function CatalogView({ available, enrolledIds = [], classStats = null, membershi
         <h3>{cls.name}</h3>
         <p>Mã lớp: {cls.classCode || '—'}</p>
         <p>HLV: {coachName(cls.coachId)}</p>
-        {status === 'upcoming'
-          ? <>
-            <p>Mở đăng ký sớm: {stamp(cls.registrationOpenAt) || '—'}</p>
-            <p>Kết thúc đăng ký sớm: {stamp(cls.registrationCloseAt) || '—'}</p>
-            {isMember && <p className="small"><strong>{canRegister ? 'Đang trong thời gian đăng ký sớm' : 'Chưa tới ngày mở đăng ký sớm'}</strong></p>}
-          </>
-          : <>
-            <p>Bắt đầu lớp: {dmy(cls.startDate || firstDate) || '—'}</p>
-            <p>Kết thúc lớp: {dmy(cls.endDate || lastDate) || '—'}</p>
-          </>}
+        <p>Bắt đầu lớp: {dmy(cls.startDate || firstDate) || '—'}</p>
+        <p>Kết thúc lớp: {dmy(cls.endDate || lastDate) || '—'}</p>
+        {status !== 'closed' && status !== 'started' && <p>Hạn đăng ký: {deadlineLine(cls)}</p>}
         <p>{classStat ? seatText({ remaining: classStat.remainingSlots }, cls.capacity) : next ? seatText(next, cls.capacity) : `Sĩ số tối đa ${cls.capacity}`}</p>
-        {isMember && classStat?.registeredByMe && <p className="small"><strong>{status === 'upcoming' ? 'Bạn đã đăng ký sớm lớp này' : 'Bạn đã đăng ký lớp này'}</strong></p>}
+        {isMember && classStat?.registeredByMe && <p className="small"><strong>Bạn đã đăng ký lớp này</strong></p>}
         <div className="catalog-actions">
           <button className="btn btn-sm" onClick={() => { setSelected(cls.id); setError(''); setNotice(''); setSessionMsg(null); setClassMsg(null) }}>Xem chi tiết</button>
           {isMember && canJoin && <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => joinClass(cls)}>Đăng ký lớp</button>}
+          {isMember && classStat && !classStat.registeredByMe && !canRegister && status !== 'closed' && <button className="btn btn-sm" disabled>{closedReason(status)}</button>}
+          {extendButton(cls, status)}
           {canManage && <button className="btn btn-sm" onClick={() => setClassForm({ cls })}>Sửa</button>}
           {canManage && <button className="btn btn-sm btn-ghost" onClick={() => { setConfirm({ kind: 'class', item: cls }); setConfirmError('') }}>Xóa</button>}
         </div>
@@ -133,23 +136,24 @@ function CatalogView({ available, enrolledIds = [], classStats = null, membershi
       <div className="stack">
         <div className="catalog-top"><span className="badge badge-green">{detail.cls.subject}</span><span className={`badge ${STATUS[detail.status].badge}`}>{STATUS[detail.status].label}</span></div>
         {detail.cls.description && <p>{detail.cls.description}</p>}
-        {(detail.cls.startDate || detail.cls.registrationOpenAt) && <div className="catalog-dates">
+        {(detail.cls.startDate || detail.cls.registrationCloseAt) && <div className="catalog-dates">
           <div><span>Bắt đầu lớp</span>{dmy(detail.cls.startDate) || '—'}</div>
           <div><span>Kết thúc lớp</span>{dmy(detail.cls.endDate) || '—'}</div>
-          <div><span>Mở đăng ký sớm</span>{stamp(detail.cls.registrationOpenAt) || '—'}</div>
-          <div><span>Kết thúc đăng ký sớm</span>{stamp(detail.cls.registrationCloseAt) || '—'}</div>
+          <div><span>Hạn đăng ký</span>{deadlineLine(detail.cls)}</div>
         </div>}
         <p className="small muted">Mã lớp {detail.cls.classCode} · HLV {coachName(detail.cls.coachId)} · Sĩ số tối đa {detail.cls.capacity}</p>
+        {canExtend(detail.cls, detail.status) && <div className="catalog-actions">{extendButton(detail.cls, detail.status)}</div>}
         {notice && <div className="alert alert-success" role="status">{notice}</div>}
         {error && <div className="alert alert-error" role="alert">{error}</div>}
-        {isMember && detail.status === 'upcoming' && <div className="alert alert-info" role="status">{!detail.canRegister
-          ? `Chưa tới giờ mở đăng ký sớm${detail.cls.registrationOpenAt ? ` (${stamp(detail.cls.registrationOpenAt)})` : ''}.`
-          : `Lớp đang trong thời gian đăng ký sớm.${detail.classStat ? (detail.classStat.registeredByMe ? ' Bạn đã đăng ký lớp.' : ' Bạn có thể đăng ký lớp ngay.') : ''} Đăng ký buổi học sẽ mở khi đăng ký sớm kết thúc${detail.cls.registrationCloseAt ? ` (${stamp(detail.cls.registrationCloseAt)})` : ''}.`}</div>}
+        {isMember && detail.status === 'expired' && <div className="alert alert-error" role="status"><strong>Đã hết hạn đăng ký</strong>{detail.cls.registrationCloseAt ? ` (hạn ${stamp(detail.cls.registrationCloseAt)})` : ''}. Lớp không còn nhận đăng ký mới.</div>}
+        {isMember && detail.canRegister && !detail.sessionsOpen && <div className="alert alert-info" role="status">
+          Đăng ký lớp trước hạn {stamp(detail.cls.registrationCloseAt)}.{detail.classStat?.registeredByMe ? ' Bạn đã đăng ký lớp.' : ''} Đăng ký từng buổi học sẽ mở sau hạn này.</div>}
         {isMember && detail.classStat && <div className="catalog-actions">
           {detail.classStat.registeredByMe
-            ? <><span className="badge badge-green">{detail.status === 'upcoming' ? 'Bạn đã đăng ký sớm lớp này' : 'Bạn đã đăng ký lớp này'}</span><button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => { setConfirm({ kind: 'unregister', item: detail.cls }); setConfirmError('') }}>Hủy đăng ký lớp</button></>
+            ? <><span className="badge badge-green">Bạn đã đăng ký lớp này</span><button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => { setConfirm({ kind: 'unregister', item: detail.cls }); setConfirmError('') }}>Hủy đăng ký lớp</button></>
             : detail.canJoin ? <button className="btn btn-primary btn-sm" disabled={busy} onClick={() => joinClass(detail.cls)}>Đăng ký lớp</button>
-              : <span className="small muted">{detail.classStat.remainingSlots === 0 ? 'Lớp đã đủ sĩ số.' : detail.status === 'closed' ? 'Lớp đã đóng.' : 'Chưa thể đăng ký lớp.'}</span>}
+              : !detail.canRegister ? <button className="btn btn-sm" disabled>{closedReason(detail.status)}</button>
+                : <span className="small muted">{detail.classStat.remainingSlots === 0 ? 'Lớp đã đủ sĩ số.' : 'Chưa thể đăng ký lớp.'}</span>}
           {!detail.classStat.registeredByMe && detail.canJoin && <span className="small muted">Cần đăng ký lớp trước khi đăng ký từng buổi học.</span>}
           {classMsgBox(detail.cls.id)}
         </div>}
@@ -160,7 +164,7 @@ function CatalogView({ available, enrolledIds = [], classStats = null, membershi
             const blocked = !detail.sessionsOpen
             const needClass = Boolean(detail.classStat) && !detail.classStat.registeredByMe
             // Buổi chưa xếp giờ: khóa nút đăng ký với chú thích "Chưa xếp giờ".
-            const label = s.unscheduled && !s.closed ? 'Chưa xếp giờ' : blocked ? STATUS[detail.status].label : needClass ? 'Cần đăng ký lớp' : s.closed ? 'Đã đóng' : s.full ? 'Đã đầy' : mine ? 'Đã đăng ký' : 'Đăng ký'
+            const label = s.unscheduled && !s.closed ? 'Chưa xếp giờ' : blocked ? (detail.status === 'closed' ? 'Đã đóng' : 'Mở sau hạn đăng ký') : needClass ? 'Cần đăng ký lớp' : s.closed ? 'Đã đóng' : s.full ? 'Đã đầy' : mine ? 'Đã đăng ký' : 'Đăng ký'
             return <li key={s.id}>
               <span><strong>{weekdayName(s.startTime)}, {formatDate(s.startTime)}</strong> {sessionTime(s)} · {roomName(s.roomId)} · HLV {coachName(s.coachId ?? detail.cls.coachId)}<br /><span className="muted">{s.closed ? (s.unscheduled ? 'Buổi học đã qua' : 'Buổi học đã bắt đầu') : s.unscheduled ? 'Giờ và phòng sẽ được cập nhật sau' : seatText(s, detail.cls.capacity)}</span>
                 {FEATURES.sessionDescription && s.description && <span className="catalog-session-desc small muted" title={s.description}>{s.description}</span>}</span>
@@ -181,7 +185,7 @@ function CatalogView({ available, enrolledIds = [], classStats = null, membershi
         <div className="form-actions"><button className="btn" onClick={() => setNeedPackage(false)}>Để sau</button><button className="btn btn-primary" onClick={() => { setNeedPackage(false); setSelected(null); goTo?.('buy') }}>Mua gói tập</button></div>
       </div>
     </Modal>}
-    {classForm && <ClassFormModal cls={classForm.cls} onClose={() => setClassForm(null)} />}
+    {classForm && <ClassFormModal cls={classForm.cls} focusDeadline={Boolean(classForm.focusDeadline)} onClose={() => setClassForm(null)} />}
     {sessionForm && detail && <SessionFormModal cls={detail.cls} session={sessionForm.session} onClose={() => setSessionForm(null)} />}
     {confirm && <Modal title={confirm.kind === 'unregister' ? 'Hủy đăng ký lớp' : 'Xác nhận xóa'} onClose={() => { if (!busy) setConfirm(null) }}>
       <div className="stack">

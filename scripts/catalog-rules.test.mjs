@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildCatalog, filterCatalog, EMPTY_FILTERS } from '../src/catalog/catalogRules.js'
+import { buildCatalog, classStarted, deadlinePassed, filterCatalog, registrationOpen, EMPTY_FILTERS } from '../src/catalog/catalogRules.js'
 
 const now = new Date('2026-10-21T12:00:00+07:00')
 const classes = [
@@ -57,23 +57,55 @@ test('bộ lọc rỗng trả về các lớp chưa đóng', () => {
   assert.equal(filterCatalog(items, EMPTY_FILTERS).length, 2)
 })
 
-test('vòng đời theo ngày: chưa mở → đang mở → đã đóng', () => {
+test('vòng đời theo hạn đăng ký: đang mở → hết hạn đăng ký → đã bắt đầu → đã đóng', () => {
   const one = (extra, now2 = now) => buildCatalog({ classes: [{ id: 1, name: 'L', subject: 'Yoga', capacity: 5, ...extra }], schedules: [{ id: 1, classId: 1, startTime: '2026-11-02T07:00:00', endTime: '2026-11-02T08:00:00' }], available: [{ id: 1, registeredCount: 1, remainingSlots: 4 }], now: now2 })[0]
-  const dates = { startDate: '2026-10-30', endDate: '2026-12-30', registrationOpenAt: '2026-10-24', registrationCloseAt: '2026-10-29' }
-  // 21/10: chưa tới ngày mở đăng ký sớm → Chưa mở, chưa được đăng ký
-  assert.equal(one(dates).status, 'upcoming')
-  assert.equal(one(dates).canRegister, false)
-  // 25/10: đang trong thời gian đăng ký sớm → vẫn Chưa mở nhưng được đăng ký
-  const early = one(dates, new Date('2026-10-25T09:00:00+07:00'))
-  assert.equal(early.status, 'upcoming')
-  assert.equal(early.canRegister, true)
-  // 30/10: hết đăng ký sớm → chuyển sang Đang mở
-  assert.equal(one(dates, new Date('2026-10-30T09:00:00+07:00')).status, 'open')
-  assert.equal(one(dates, new Date('2026-10-30T09:00:00+07:00')).canRegister, true)
+  const dates = { startDate: '2026-10-30', endDate: '2026-12-30', registrationCloseAt: '2026-10-28T20:00:00' }
+  // 21/10: trong hạn → Đang mở, được đăng ký lớp, chưa đăng ký buổi
+  assert.equal(one(dates).status, 'open')
+  assert.equal(one(dates).canRegister, true)
+  assert.equal(one(dates).sessionsOpen, false)
+  // 29/10: quá hạn, lớp chưa bắt đầu → Hết hạn đăng ký; đăng ký buổi mở
+  const expired = one(dates, new Date('2026-10-29T09:00:00+07:00'))
+  assert.deepEqual([expired.status, expired.canRegister, expired.sessionsOpen], ['expired', false, true])
+  // 30/10 00:00: lớp bắt đầu → Đã bắt đầu
+  const started = one(dates, new Date('2026-10-30T00:00:00+07:00'))
+  assert.deepEqual([started.status, started.canRegister, started.sessionsOpen], ['started', false, true])
   // sau ngày kết thúc lớp → Đã đóng
   assert.equal(one(dates, new Date('2026-12-31T09:00:00+07:00')).status, 'closed')
   // không có ngày thì suy theo buổi học
   assert.equal(one({}).status, 'open')
+  assert.equal(one({}).sessionsOpen, true)
+})
+
+test('registrationOpen: đúng quy tắc BE', () => {
+  const cls = { startDate: '2026-10-30', endDate: '2026-12-30', registrationCloseAt: '2026-10-28T20:00:00' }
+  const t = (s) => new Date(s)
+  assert.equal(registrationOpen(cls, t('2026-10-28T20:00:00+07:00')), true) // bây giờ <= hạn
+  assert.equal(registrationOpen(cls, t('2026-10-28T20:00:30+07:00')), false)
+  // chưa đặt hạn: đăng ký được tới trước 00:00 ngày bắt đầu
+  const noDeadline = { ...cls, registrationCloseAt: null }
+  assert.equal(registrationOpen(noDeadline, t('2026-10-29T23:59:00+07:00')), true)
+  assert.equal(registrationOpen(noDeadline, t('2026-10-30T00:00:00+07:00')), false)
+  assert.equal(classStarted(noDeadline, t('2026-10-30T00:00:00+07:00')), true)
+  assert.equal(deadlinePassed(noDeadline, t('2030-01-01T00:00:00+07:00')), false)
+  // lớp cũ có registrationOpenAt: bỏ qua
+  assert.equal(registrationOpen({ ...noDeadline, registrationOpenAt: '2026-10-29T00:00:00' }, t('2026-10-21T12:00:00+07:00')), true)
+  // lớp đã kết thúc
+  assert.equal(registrationOpen({ endDate: '2026-10-01' }, t('2026-10-21T12:00:00+07:00')), false)
+})
+
+test('lớp hết hạn đăng ký / đã bắt đầu vẫn hiện trong danh sách; lọc theo trạng thái', () => {
+  const list = buildCatalog({ now, schedules: [
+    { id: 1, classId: 1, startTime: '2026-11-02T07:00:00', endTime: '2026-11-02T08:00:00' },
+    { id: 2, classId: 2, startTime: '2026-10-22T07:00:00', endTime: '2026-10-22T08:00:00' },
+    { id: 3, classId: 3, startTime: '2026-11-02T07:00:00', endTime: '2026-11-02T08:00:00' }], classes: [
+    { id: 1, name: 'A', capacity: 5, startDate: '2026-10-30', endDate: '2026-12-30', registrationCloseAt: '2026-10-20T08:00:00' },
+    { id: 2, name: 'B', capacity: 5, startDate: '2026-10-20', endDate: '2026-12-30' },
+    { id: 3, name: 'C', capacity: 5, startDate: '2026-10-30', endDate: '2026-12-30' }] })
+  assert.deepEqual(list.map((i) => i.status), ['expired', 'started', 'open'])
+  assert.deepEqual(filterCatalog(list, EMPTY_FILTERS).map((i) => i.cls.id), [1, 2, 3])
+  assert.deepEqual(filterCatalog(list, { ...EMPTY_FILTERS, status: 'expired' }).map((i) => i.cls.id), [1])
+  assert.deepEqual(filterCatalog(list, { ...EMPTY_FILTERS, status: 'started' }).map((i) => i.cls.id), [2])
 })
 
 test('lớp chưa có buổi học nào là Chưa mở; lớp đã đóng bị ẩn mặc định', () => {
@@ -95,16 +127,12 @@ test('khoảng ngày suy ra từ các buổi học của lớp', () => {
   assert.deepEqual([many.firstDate, many.lastDate, many.sessionCount], ['2026-10-31', '2026-12-30', 3])
 })
 
-test('đăng ký sớm có giờ: chỉ đăng ký được trong khoảng mở đến đóng', () => {
-  const cls = { id: 9, name: 'Yoga mới', subject: 'Yoga', capacity: 10, registrationOpenAt: '2026-10-28T11:00:00', registrationCloseAt: '2026-10-28T23:00:00', startDate: '2026-10-29', endDate: '2026-12-29' }
-  const at = (t) => buildCatalog({ classes: [cls], schedules: [{ id: 91, classId: 9, startTime: '2026-10-29T07:00:00', endTime: '2026-10-29T08:00:00' }], now: new Date(t) })[0]
-  assert.equal(at('2026-10-28T10:59:00+07:00').status, 'upcoming')
-  assert.equal(at('2026-10-28T10:59:00+07:00').canRegister, false)
-  assert.equal(at('2026-10-28T11:00:00+07:00').canRegister, true)
-  assert.equal(at('2026-10-28T11:00:00+07:00').sessionsOpen, false) // đăng ký sớm: chỉ đăng ký lớp, chưa đăng ký buổi
-  assert.equal(at('2026-10-28T22:59:00+07:00').status, 'upcoming')
-  assert.equal(at('2026-10-28T23:01:00+07:00').status, 'open')
-  assert.equal(at('2026-10-28T23:01:00+07:00').sessionsOpen, true)
+test('canJoin: hết hạn đăng ký thì không đăng ký lớp được dù còn chỗ', () => {
+  const cls = { id: 9, name: 'Yoga mới', subject: 'Yoga', capacity: 10, registrationCloseAt: '2026-10-28T23:00:00', startDate: '2026-10-29', endDate: '2026-12-29' }
+  const at = (t) => buildCatalog({ classes: [cls], schedules: [{ id: 91, classId: 9, startTime: '2026-10-29T07:00:00', endTime: '2026-10-29T08:00:00' }], classStats: [{ classId: 9, registeredCount: 0, remainingSlots: 10, registeredByMe: false }], now: new Date(t) })[0]
+  assert.equal(at('2026-10-28T23:00:00+07:00').canJoin, true)
+  assert.equal(at('2026-10-28T23:01:00+07:00').canJoin, false)
+  assert.equal(at('2026-10-28T23:01:00+07:00').status, 'expired')
 })
 
 test('đăng ký lớp: sĩ số tính theo lớp, canJoin chỉ khi còn chỗ và chưa đăng ký', () => {
