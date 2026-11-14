@@ -76,7 +76,7 @@ export default function CoachDashboard({ goTo }) {
             </tbody>
           </table>
         )}
-        <p className="small muted">Sĩ số đăng ký từng buổi sẽ hiện khi Back-End có API danh sách học viên của buổi học.</p>
+        <p className="small muted">Sĩ số buổi học được tính theo số hội viên đăng ký lớp.</p>
       </div>
     </div>
   )

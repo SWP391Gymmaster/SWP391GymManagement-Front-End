@@ -1,21 +1,21 @@
 
 export const API_URL = import.meta.env.VITE_API_URL || '/backend'
 
-const SESSION_KEY = 'gm-session'
+const SESSION_KEY = 'gymmaster-api-session-v1'
 
 export const sessionStore = {
   get() {
     try {
-      return JSON.parse(localStorage.getItem(SESSION_KEY))
+      return JSON.parse(sessionStorage.getItem(SESSION_KEY))
     } catch {
       return null
     }
   },
   set(session) {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session))
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(session))
   },
   clear() {
-    localStorage.removeItem(SESSION_KEY)
+    sessionStorage.removeItem(SESSION_KEY)
   },
 }
 
@@ -40,7 +40,6 @@ const MESSAGES = {
   'Class still has schedules, delete them first': 'Lớp vẫn còn lịch học, cần xóa lịch trước',
   'Invalid request data': 'Dữ liệu không hợp lệ',
   'Class session is full': 'Lớp đã đủ số lượng, vui lòng chọn buổi hoặc lớp khác',
-  'Already enrolled in this class session': 'Bạn đã đăng ký buổi học này',
   'Class session has already started': 'Buổi học đã bắt đầu, không thể đăng ký hoặc hủy',
   'Membership package is expired or does not cover this class session': 'Bạn chưa mua gói hoặc hiệu lực gói tập không bao gồm buổi học này. Vui lòng mua gói tập!',
   'Membership package is currently inactive': 'Gói tập hiện không còn được mở bán',
@@ -60,11 +59,9 @@ const MESSAGES = {
   'You are not authorized to pay for this invoice': 'Bạn không có quyền thanh toán hóa đơn này',
   'Membership package is expired or does not cover this class session':
     'Bạn chưa mua gói hoặc hiệu lực gói tập không bao gồm buổi học này. Vui lòng mua gói tập!',
-  'Already enrolled in this class session': 'Bạn đã đăng ký buổi học này rồi',
   'Class session is full': 'Buổi học đã đủ chỗ',
   'Class session has already started': 'Buổi học đã bắt đầu, không thể đăng ký hoặc hủy',
   'Schedule not found': 'Không tìm thấy buổi học',
-  'Enrollment not found': 'Bạn chưa đăng ký buổi học này',
 }
 
 const FIELD_NAMES = {
