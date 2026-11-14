@@ -18,12 +18,13 @@ export default function SessionFormModal({ cls, session, onClose }) {
   const [form, setForm] = useState(() => session
     ? { id: session.id, classId: cls.id, roomId: session.roomId ?? '', coachId: session.coachId ?? '', startTime: String(session.startTime).slice(0, 16), endTime: String(session.endTime).slice(0, 16), description: session.description ?? '' }
     : { classId: cls.id, roomId: defaultRoomId(cls.id, schedules), coachId: classCoachId, startTime: '', endTime: '', description: '' })
+  const [duration, setDuration] = useState(60)
   const [roomLocked, setRoomLocked] = useState(() => adding && form.roomId !== '')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [roomHint, setRoomHint] = useState(false) // lỗi liên quan tới phòng đang khóa → nhắc bấm "Đổi phòng"
   const coaches = users.filter(u => u.role === 'coach')
-  const coachLocked = adding && Boolean(classCoachId)
+  const coachLocked = !adding || Boolean(classCoachId)
   const classCoach = coaches.find(c => String(c.id) === classCoachId)
   // Coach đang chọn mà sai môn (dữ liệu cũ) vẫn hiện để biết, nhưng không chọn lại được.
   const coachList = coaches.filter(c => !FEATURES.coachSubjects || coachTeaches(c, cls.subject) || String(c.id) === String(form.coachId))
@@ -56,7 +57,7 @@ export default function SessionFormModal({ cls, session, onClose }) {
   const coachField = coachLocked
     ? <div className="readonly-field">
       <span className="readonly-label">Huấn luyện viên (phụ trách lớp)</span>
-      <div className="readonly-value"><strong>{classCoach?.name || `#${classCoachId}`}</strong></div>
+      <div className="readonly-value"><strong>{coaches.find(c => String(c.id) === String(form.coachId))?.name || classCoach?.name || `#${form.coachId || classCoachId}`}</strong></div>
     </div>
     : <label>{coachLabel}<select required={adding} value={form.coachId} onChange={e => set('coachId', e.target.value)}><option value="">{adding ? '-- Chọn huấn luyện viên --' : 'Theo huấn luyện viên của lớp'}</option>
       {coachList.map(c => { const wrong = FEATURES.coachSubjects && !coachTeaches(c, cls.subject); return <option key={c.id} value={c.id} disabled={wrong}>{wrong ? `${c.name} (không dạy ${cls.subject})` : c.name}</option> })}
@@ -67,7 +68,8 @@ export default function SessionFormModal({ cls, session, onClose }) {
       <fieldset className="form api-fieldset" disabled={busy}>
         {roomField}
         {coachField}
-        <label>Ngày giờ bắt đầu<input type="datetime-local" required value={form.startTime} onChange={e => set('startTime', e.target.value)} /></label>
+        <label>Ngày giờ bắt đầu<input type="datetime-local" required value={form.startTime} onChange={e => { const startTime = e.target.value; setForm(previous => ({ ...previous, startTime, endTime: adding && startTime ? new Date(new Date(`${startTime}:00+07:00`).getTime() + duration * 60000 + 7 * 3600000).toISOString().slice(0, 16) : previous.endTime })) }} /></label>
+        {adding && <label>Thời lượng (phút)<input type="number" min="1" required value={duration} onChange={e => { const minutes = Number(e.target.value); setDuration(minutes); if (form.startTime && minutes > 0) set('endTime', new Date(new Date(`${form.startTime}:00+07:00`).getTime() + minutes * 60000 + 7 * 3600000).toISOString().slice(0, 16)) }} /></label>}
         <label>Ngày giờ kết thúc<input type="datetime-local" required value={form.endTime} onChange={e => set('endTime', e.target.value)} /></label>
         {FEATURES.sessionDescription && <label>Lộ trình / mô tả buổi học
           <textarea rows={4} maxLength={SESSION_DESCRIPTION_MAX} value={form.description} onChange={e => set('description', e.target.value)} placeholder="VD: Khởi động 10 phút, bài chính, giãn cơ..." />

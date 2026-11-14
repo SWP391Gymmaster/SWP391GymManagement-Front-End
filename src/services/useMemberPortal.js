@@ -19,9 +19,10 @@ export function useMemberPortal() {
     window.addEventListener('focus', refresh)
     return () => { clearInterval(timer); window.removeEventListener('focus', refresh) }
   }, [])
+  const loading = !result || result.revision !== memberRevision || result.attempt !== attempt
   return {
-    data: result?.data, error: result?.error,
-    loading: !result || result.revision !== memberRevision || result.attempt !== attempt,
+    data: loading ? null : result.data, error: loading ? '' : result.error,
+    loading,
     retry: () => setAttempt((n) => n + 1), memberService,
   }
 }
