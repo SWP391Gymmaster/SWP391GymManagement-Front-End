@@ -7,10 +7,12 @@
         "dev": "vite",
         "build": "vite build",
         "lint": "eslint .",
-        "test": "node --test scripts/translations.test.mjs scripts/room-rules.test.mjs scripts/class-rules.test.mjs scripts/catalog-rules.test.mjs scripts/class-dates.test.mjs scripts/class-defaults.test.mjs scripts/class-code.test.mjs scripts/class-duplicates.test.mjs scripts/coach-subjects.test.mjs scripts/session-defaults.test.mjs",
+        "test": "node --test scripts/translations.test.mjs scripts/room-rules.test.mjs scripts/class-rules.test.mjs scripts/catalog-rules.test.mjs scripts/class-dates.test.mjs scripts/class-defaults.test.mjs scripts/class-code.test.mjs scripts/class-duplicates.test.mjs scripts/coach-subjects.test.mjs scripts/session-defaults.test.mjs scripts/session-batch.test.mjs scripts/class-route.test.mjs",
         "test:avatar": "node scripts/avatar.test.mjs",
-        "test:member": "node scripts/member.test.mjs",
         "test:api": "node scripts/api.test.mjs",
+        "test:e2e": "node scripts/e2e/run.mjs",
+        "test:e2e:api": "node --test scripts/e2e/api.test.mjs",
+        "test:e2e:browser": "node scripts/e2e/browser.mjs",
         "test:payments": "node scripts/payments.test.mjs",
         "test:mockapi": "node scripts/mockapi-crud.test.mjs",
         "preview": "vite preview",
@@ -30,6 +32,7 @@
         "eslint-plugin-react-hooks": "^7.1.1",
         "eslint-plugin-react-refresh": "^0.5.6",
         "globals": "^17.12.0",
+        "playwright": "^1.65.0",
         "vite": "^8.3.0"
     }
 }
