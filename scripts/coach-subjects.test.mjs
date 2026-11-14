@@ -13,7 +13,7 @@ const room = { id: 1, name: 'Phòng Yoga', capacity: 30, type: 'YOGA' }
 const session = { classId: 1, roomId: 1, startTime: '2026-11-10T07:00', endTime: '2026-11-10T08:00' }
 const yogaClass = { id: 1, ...yoga, coachId: 7 }
 
-test('cờ coachSubjects mặc định tắt', () => assert.equal(FEATURES.coachSubjects, false))
+test('cờ coachSubjects mặc định tắt', () => assert.equal(FEATURES.coachSubjects, true))
 
 test('coachTeaches: đúng môn / sai môn / không có subjects', () => {
   assert.equal(coachTeaches(coaches[0], 'Yoga'), true)

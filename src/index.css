@@ -580,6 +580,8 @@ button, input, select, textarea { transition: background .18s, border-color .18s
 .staff-subject-list { display: flex; flex-wrap: wrap; gap: 6px 16px; }
 .staff-subject-list .check { flex-direction: row; align-items: center; gap: 6px; }
 .staff-subject-list .check input { width: auto; min-height: auto; }
+.package-subjects { border: 0; padding: 0; margin: 0; }
+.package-subjects legend { padding: 0; margin-bottom: 8px; }
 
 /* ---------- Badge Variants ---------- */
 .badge-amber { background: #fef3cd; color: #856404; }
@@ -622,8 +624,10 @@ button, input, select, textarea { transition: background .18s, border-color .18s
 .checkout-result { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 18px; padding: 32px 20px; }
 .checkout-result-icon { width: 72px; height: 72px; border-radius: 50%; display: grid; place-items: center; font-size: 32px; font-weight: 700; }
 .checkout-result-icon.success { background: var(--primary-soft); color: var(--primary); }
+.checkout-result-icon.pending { background: var(--primary-soft); color: var(--primary-dark); }
 .checkout-result-icon.failed { background: var(--danger-soft); color: var(--danger); }
 .checkout-result-icon.cancelled { background: #eef1ef; color: var(--muted); }
 .checkout-result h2 { font-size: 24px; letter-spacing: -.5px; }
 .checkout-result > p { max-width: 440px; font-size: 13px; line-height: 1.7; }
+.checkout-result .summary { width: min(100%, 440px); text-align: left; }
 .checkout-result-actions { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; margin-top: 8px; }
