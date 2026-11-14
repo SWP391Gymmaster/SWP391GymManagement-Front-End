@@ -4,7 +4,7 @@ import { membershipStatus } from '../src/services/membershipStatus.js'
 const memory = () => { const m = new Map(); return { getItem: k => m.get(k), setItem: (k, v) => m.set(k, v), removeItem: k => m.delete(k) } }
 const token = `header.${btoa(JSON.stringify({ exp: Date.now() / 1000 + 3600 }))}.signature`
 const calls = []
-let payment = { paymentId: 10, invoiceId: 20, memberId: 2, packageId: 3, amount: 500000, paymentMethod: 'MOMO', status: 'PENDING' }
+let payment = { paymentId: 10, invoiceId: 20, memberId: 2, packageId: 3, amount: 500000, paymentMethod: 'PAYOS', status: 'PENDING' }
 let memberships = []
 let fail = false, release = null, slow = false
 const json = (value, status = 200) => new Response(JSON.stringify(value), { status })
@@ -21,7 +21,10 @@ const backend = async (url, options) => {
     payment = { ...payment, ...body, status: path.endsWith('/cash-checkout') ? 'COMPLETED' : 'PENDING' }
     return json(payment, 201)
   }
-  if (path.endsWith('/simulate-pay') || path.endsWith('/confirm')) {
+  if (path === '/api/payos/create-payment-link') return json({ paymentId: 10, paymentUrl: 'https://pay.payos.vn/web/demo' })
+  if (path === '/api/payos/payments/10/retry') return json({ paymentId: 10, paymentUrl: 'https://pay.payos.vn/web/retry' })
+  if (path === '/api/payos/payments/10/reconcile') return json({ paymentId: 10 })
+  if (path.endsWith('/confirm')) {
     payment = { ...payment, status: 'COMPLETED' }
     memberships = [{ id: 30, memberId: 2, packageId: 3, startDate: '2026-10-08', endDate: '2026-11-06', active: true, daysRemaining: 30 }]
     return json(payment)
@@ -39,8 +42,8 @@ await store.login('member@example.com', 'password123')
 await store.refresh()
 const service = store.paymentService
 const revision = store.getSnapshot().memberRevision
-assert.equal((await service.checkout({ packageId: '3', paymentMethod: 'MOMO', memberId: 999 })).status, 'PENDING')
-assert.deepEqual(calls.at(-1), { path: '/api/member/payments/checkout', method: 'POST', body: { packageId: 3, paymentMethod: 'MOMO', note: '' } })
+assert.equal((await service.checkout({ packageId: '3', paymentMethod: 'PAYOS', memberId: 999 })).status, 'PENDING')
+assert.deepEqual(calls.at(-1), { path: '/api/member/payments/checkout', method: 'POST', body: { packageId: 3, paymentMethod: 'PAYOS', note: '' } })
 assert.equal(store.getSnapshot().memberRevision, revision + 1)
 assert.equal((await store.memberService.getOverview()).status.status, 'none', 'checkout alone does not activate membership')
 await service.list()
@@ -50,13 +53,22 @@ await service.getPayment(10)
 assert.equal(calls.at(-1).path, '/api/member/payments/10')
 await service.getInvoice(20)
 assert.equal(calls.at(-1).path, '/api/member/invoices/20')
-await service.simulate(10)
-assert.equal(calls.at(-1).path, '/api/member/payments/10/simulate-pay')
+const link = await service.createPayosLink({ packageId: '3' })
+assert.equal(link.paymentId, 10)
+assert.equal(link.paymentUrl, 'https://pay.payos.vn/web/demo')
+assert.equal(calls.at(-1).path, '/api/payos/create-payment-link')
+assert.equal((await service.retryPayosPayment(10)).paymentId, 10)
+assert.deepEqual(calls.at(-1), { path: '/api/payos/payments/10/retry', method: 'POST', body: undefined })
+await service.reconcilePayosPayment(10)
+assert.deepEqual(calls.at(-1), { path: '/api/payos/payments/10/reconcile', method: 'POST', body: undefined })
+assert.equal((await store.memberService.getOverview()).status.status, 'none')
+payment = { ...payment, status: 'COMPLETED' }
+memberships = [{ id: 30, memberId: 2, packageId: 3, startDate: '2026-10-08', endDate: '2026-11-06', active: true, daysRemaining: 30 }]
 assert.equal((await store.memberService.getOverview()).status.status, 'active')
 assert.equal((await service.getInvoice(20)).status, 'PAID')
 fail = true
 const failedRevision = store.getSnapshot().memberRevision
-await assert.rejects(service.simulate(10), e => e.status === 400)
+await assert.rejects(service.createPayosLink({ packageId: '3' }), e => e.status === 400)
 assert.equal(store.getSnapshot().memberRevision, failedRevision, 'failed mutation does not publish success')
 fail = false
 // A delayed 401 must not log out a newly authenticated session, even if BE returns the same JWT.

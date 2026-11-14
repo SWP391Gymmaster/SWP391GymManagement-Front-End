@@ -75,7 +75,7 @@ npm run test:avatar
 npm run build
 ```
 
-`test:api` chạy offline với HTTP transport mô phỏng theo DTO/controller BE: auth, payload CRUD, ID số, lịch có ngày, response 204/text, lỗi và session đổi trong lúc tải. Không tạo dữ liệu thật trong MySQL. `test:member` và `src/services/memberService.js` giữ lại kiểm thử logic mock cũ làm tham khảo, không được dùng bởi UI hiện tại.
+`test:api` chạy offline với HTTP transport mô phỏng theo DTO/controller BE: auth, payload CRUD, ID số, lịch có ngày, response 204/text, lỗi và session đổi trong lúc tải. Không tạo dữ liệu thật trong MySQL. Đăng ký chỉ thực hiện ở cấp lớp; dữ liệu buổi học của member được suy ra từ các lớp đã đăng ký.
 
 Kiểm tra trực tiếp khi BE chạy: đăng nhập từng vai trò; tạo/sửa/xóa dữ liệu test ở Manager; xem lịch Coach; đặt/hủy buổi ở Member; tải lại trang; đăng xuất; đổi giao diện sáng/tối. Giao diện hiện dùng tiếng Việt thống nhất. Tạo lịch tương lai để Member nhìn thấy trong danh sách khả dụng.
 
