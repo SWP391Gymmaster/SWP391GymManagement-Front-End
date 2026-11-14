@@ -12,7 +12,7 @@ const classes = [
   cls(4, 7, '2026-01-01', '2026-03-31'), // đã đóng
 ]
 const form = (extra) => ({ classCode: 'CLS-T-NEW', name: 'Lớp mới', subject: 'Gym', capacity: 15, coachId: 7, startDate: '2026-11-01', endDate: '2026-11-30', ...extra })
-const coaches = [{ id: 7, name: 'Phạm Ngọc Lan' }, { id: 8, name: 'Lê Văn B' }]
+const coaches = [{ id: 7, name: 'Phạm Ngọc Lan', subjects: ['Gym'] }, { id: 8, name: 'Lê Văn B' }]
 
 test('khoảng ngày giao nhau tính cả hai đầu', () => {
   assert.equal(rangesOverlap('2026-11-01', '2026-11-30', '2026-11-30', '2026-12-10'), true)
@@ -90,7 +90,7 @@ test('coach đã có 5 lớp giao nhau thì bị chặn (5/5)', () => {
 
 test('validateClass áp dụng luật coach khi có danh sách lớp, sửa không đổi coach/ngày thì bỏ qua', () => {
   assert.ok(validateClass(form(), [], { classes, coaches, today }).some((m) => m.includes('trùng với lớp')))
-  assert.deepEqual(validateClass(form(), []), [])
+  assert.deepEqual(validateClass(form(), [], { coachSubjects: false }), [])
   const original = form({ id: 200, classCode: 'CLS-T-200' })
   assert.deepEqual(validateClass({ ...original, name: 'Đổi tên' }, [], { classes: busy(6), coaches, original, today }), [])
   assert.ok(validateClass({ ...original, endDate: '2026-11-29' }, [], { classes: busy(6), coaches, original, today }).some((m) => m.includes('đã đủ 5 lớp')))
