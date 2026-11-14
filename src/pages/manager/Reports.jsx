@@ -215,7 +215,7 @@ function ProgressReport({ month }) {
       ]),
       [],
       [`Tiến độ Coach ${monthLabel(month)}`],
-      ['Coach', 'Số lớp', 'Buổi trong tháng', 'Buổi đã dạy', 'Giờ đã dạy', 'Giờ theo lịch', 'Buổi sắp tới'],
+      ['Coach', 'Số lớp', 'Buổi trong tháng', 'Buổi đã qua giờ theo lịch', 'Giờ đã qua theo lịch', 'Giờ theo lịch', 'Buổi sắp tới'],
       ...coachRows.map((r) => [r.co.fullName, r.classes, r.inMonth, r.doneInMonth, fmtHours(r.hours), fmtHours(r.plannedHours), r.upcoming.length]),
     ])
 
@@ -259,7 +259,7 @@ function ProgressReport({ month }) {
       <div className="card">
         <div className="card-head"><h3>Tiến độ Coach · {monthLabel(month)}</h3></div>
         <table className="table">
-          <thead><tr><th>Coach</th><th>Lớp phụ trách</th><th>Buổi đã dạy / theo lịch</th><th>Giờ đã dạy</th><th>Buổi sắp tới</th><th>Buổi kế tiếp</th></tr></thead>
+          <thead><tr><th>Coach</th><th>Lớp phụ trách</th><th>Buổi đã qua giờ theo lịch / theo lịch</th><th>Giờ đã qua theo lịch</th><th>Buổi sắp tới</th><th>Buổi kế tiếp</th></tr></thead>
           <tbody>
             {coachRows.map((r) => (
               <tr key={r.co.id}>

@@ -22,14 +22,6 @@ export const scheduleApi = {
 }
 export const coachApi = { list: () => api('/api/coaches') }
 
-export const enrollmentApi = {
-  available: () => api('/api/member/class-sessions/available'),
-  mine: () => api('/api/member/class-enrollments'),
-  enroll: (scheduleId) => api(`/api/member/class-sessions/${scheduleId}/enrollment`, { method: 'POST' }),
-  cancel: (scheduleId) => api(`/api/member/class-sessions/${scheduleId}/enrollment`, { method: 'DELETE' }),
-}
-export const classEnrollmentApi = enrollmentApi
-
 export const invoiceApi = {
   list: () => api('/api/invoices'),
   get: (id) => api(`/api/invoices/${id}`),
