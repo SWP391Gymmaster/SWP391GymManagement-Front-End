@@ -67,7 +67,7 @@ export default function BuyPackage({ goTo }) {
       </div>
 
       <div className="alert alert-info">
-        {t('Gói được kích hoạt sau khi thanh toán được xác nhận. Gia hạn sẽ nối tiếp thời hạn gói hiện có.')}
+        {t('Gói có hiệu lực sau khi thanh toán được xác nhận. Ngày bắt đầu và kết thúc dự kiến được hiển thị trước khi thanh toán.')}
       </div>
 
       <div className="grid-cards">
@@ -79,6 +79,7 @@ export default function BuyPackage({ goTo }) {
               {pkg.days} {t('ngày')}
             </div>
             <p>{pkg.description}</p>
+            <p className="muted small">Bộ môn: {(pkg.allowedSubjects || []).join(', ') || 'Chưa xác định'}</p>
             <button
               className="btn btn-primary full"
               onClick={() => handleSelectPackage(pkg)}
