@@ -10,9 +10,9 @@ const calls = []
 const catalog = [{ id: 11, name: 'Plan', description: 'Benefits', price: 500000, durationDays: 30, active: true }]
 const classes = [{ id: 22, name: 'Yoga', subject: 'Yoga', capacity: 10, coachId: 33 }]
 const rooms = [{ id: 44, name: 'Room', capacity: 20 }]
-const schedules = [{ id: 55, classId: 22, coachId: 33, roomId: 44, startTime: '2099-10-07T18:00:00', endTime: '2099-10-07T19:00:00' }]
+const schedules = [{ id: 55, classId: 22, coachId: 33, roomId: 44, startTime: '2099-10-07T18:00:00', endTime: '2099-10-07T19:00:00', description: 'Khởi động và tập Yoga' }]
 const coaches = [{ id: 33, fullName: 'Trainer', email: 'coach@example.com', role: 'COACH' }]
-let enrollments = []
+let registeredClass = false
 let forbidden = false
 let forceError = null
 let nextId = 100
@@ -50,16 +50,17 @@ async function backend(url, options) {
   if (/^\/api\/admin\/users\/\d+$/.test(path) && options.method === 'GET') return json({ id: Number(path.split('/').at(-1)), userName: 'managed' })
   if (/^\/api\/admin\/users\/\d+$/.test(path) && options.method === 'PATCH') return json({ user: { id: Number(path.split('/').at(-1)), ...body }, verificationEmailStatus: 'NOT_REQUIRED' })
   if (/^\/api\/admin\/users\/\d+$/.test(path) && options.method === 'DELETE') return json(null, 204)
-  if (path === '/api/vnpay/create-payment-url') return json({ paymentUrl: 'https://sandbox.vnpayment.vn/demo' })
-  if (path.startsWith('/api/vnpay/mock-success/')) return json({ paymentCode: path.split('/').at(-1), status: 'COMPLETED' })
+  if (path === '/api/payos/create-payment-link') return json({ paymentId: 77, paymentUrl: 'https://pay.payos.vn/web/demo' })
+  if (path === '/api/payos/payments/5/retry') return json({ paymentId: 78, paymentUrl: 'https://pay.payos.vn/web/retry' })
   if (path === '/api/member/memberships') return json([])
-  if (path === '/api/member/class-sessions/available') return json([{ scheduleId: 55, classId: 22, className: 'Yoga', subject: 'Yoga', coachId: 33, roomId: 44, startTime: schedules[0].startTime, endTime: schedules[0].endTime, capacity: 10, registeredCount: enrollments.length, remainingSlots: 10 - enrollments.length, registeredByMe: enrollments.length > 0 }])
-  if (path === '/api/member/class-enrollments') return json(enrollments)
-  if (path === '/api/member/class-sessions/55/enrollment') {
-    if (options.method === 'DELETE') { enrollments = []; return json(null, 204) }
-    const row = { enrollmentId: 66, scheduleId: 55, classId: 22, className: 'Yoga', startTime: schedules[0].startTime, endTime: schedules[0].endTime, enrolledAt: new Date().toISOString() }
-    enrollments = [row]
-    return json(row, 201)
+  if (path === '/api/member/memberships/quote?packageId=11') return json({ startDate: '2099-01-01', endDate: '2099-01-30' })
+  if (path === '/api/member/attendance') return json([])
+  if (path === '/api/member/attendance/55/read' && options.method === 'POST') return json(null, 204)
+  if (path === '/api/member/classes') return json([{ classId: 22, registeredCount: Number(registeredClass), remainingSlots: 10 - Number(registeredClass), registeredByMe: registeredClass }])
+  if (path === '/api/member/classes/22/registration') {
+    if (options.method === 'DELETE') { registeredClass = false; return json(null, 204) }
+    registeredClass = true
+    return json({ classId: 22, registeredAt: new Date().toISOString() }, 201)
   }
   const collection = path.startsWith('/api/membership-packages') ? catalog : path.startsWith('/api/rooms') ? rooms : path.startsWith('/api/classes') ? classes : path.startsWith('/api/schedules') ? schedules : null
   assert(collection, 'unexpected route ' + path)
@@ -77,6 +78,10 @@ await store.refresh()
 assert.equal(store.getSnapshot().currentUser.role, 'manager')
 assert.equal(store.getSnapshot().packages[0].days, 30)
 assert.equal(store.getSnapshot().schedules[0].id, 55)
+const classReads = calls.filter(call => call.path === '/api/classes').length
+await store.reloadCatalog()
+assert.equal(calls.filter(call => call.path === '/api/classes').length, classReads + 1)
+assert.equal(calls.at(-1).path, '/api/schedules')
 assert.equal(store.getSnapshot().memberships.length, 0)
 assert(session.getItem('gymmaster-api-session-v1').includes(jwt))
 assert(!session.getItem('gymmaster-api-session-v1').includes('password123'), 'passwords are never stored')
@@ -85,10 +90,11 @@ assert(!validSession({ token: token(-1), user: store.getSnapshot().currentUser }
 const restored = createBackendStore({ sessionStorage: session, localStorage: local, fetchImpl: backend })
 assert.equal(restored.getSnapshot().currentUser.id, 1)
 
-const pkg = await store.savePackage({ name: 'New plan', days: 90, price: 1200000, active: true, description: 'Test' })
+const pkg = await store.savePackage({ packageCode: 'PKG-NEW', name: 'New plan', days: 90, price: 1200000, active: true, description: 'Test', allowedSubjects: ['GYM'] })
 assert.equal(pkg.days, 90)
 assert.equal(calls.at(-1).body.durationDays, 90)
 assert(!('days' in calls.at(-1).body))
+assert.deepEqual(calls.at(-1).body.allowedSubjects, ['GYM'])
 await store.savePackage({ ...pkg, days: 60 })
 assert.equal(calls.at(-1).options.method, 'PUT')
 await store.togglePackage(pkg.id)
@@ -121,9 +127,10 @@ await store.api.adminUsers.deactivate(88)
 assert.equal(calls.at(-1).options.method, 'DELETE')
 await store.api.adminUsers.resendVerification(88)
 assert(calls.at(-1).path.endsWith('/verification-email'))
-assert.equal((await store.api.vnpay.createPaymentUrl({ packageId: 2 })).paymentUrl, 'https://sandbox.vnpayment.vn/demo')
-assert.equal(calls.at(-1).path, '/api/vnpay/create-payment-url')
-assert.equal((await store.api.vnpay.mockSuccess('PAY-X')).status, 'COMPLETED')
+assert.deepEqual(await store.api.payos.createPaymentLink({ packageId: 2 }), { paymentId: 77, paymentUrl: 'https://pay.payos.vn/web/demo' })
+assert.equal(calls.at(-1).path, '/api/payos/create-payment-link')
+assert.deepEqual(await store.paymentService.getMembershipQuote(11), { startDate: '2099-01-01', endDate: '2099-01-30' })
+assert.equal(calls.at(-1).path, '/api/member/memberships/quote?packageId=11')
 const cls = await store.saveClass({ name: 'Class', subject: 'Yoga', capacity: '10', coachId: '33', roomId: 44, days: ['T2'] })
 assert.equal(calls.at(-1).body.coachId, 33)
 assert(!('days' in calls.at(-1).body) && !('roomId' in calls.at(-1).body), 'class payload is separate from schedules')
@@ -169,19 +176,20 @@ assert.equal(registration.body.fullName, 'Member Name')
 assert(!('role' in registration.body) && !('gender' in registration.body))
 let portal = await store.memberService.getOverview()
 assert.equal(portal.status.status, 'none', 'empty membership response means no activated membership')
-assert.equal(portal.sessions[0].id, 55)
-assert.equal(portal.sessions[0].roomName, 'Room')
-assert.equal(portal.sessions[0].coachName, 'Trainer')
-assert.equal(portal.sessions[0].startTime, '2099-10-07T18:00:00+07:00')
-await store.memberService.enroll(55)
+assert.equal(portal.sessions.length, 0)
+await store.memberService.markAttendanceRead(55)
+assert.equal(calls.at(-1).path, '/api/member/attendance/55/read')
+await store.memberService.registerClass(22)
 portal = await store.memberService.getOverview()
 assert.equal(portal.enrollments[0].sessionId, 55)
 assert.equal(portal.enrollments[0].session.subject, 'Yoga')
 assert.equal(portal.enrollments[0].session.roomName, 'Room')
-await store.memberService.cancelEnrollment(55)
+assert.equal(portal.enrollments[0].session.description, 'Khởi động và tập Yoga')
+assert.equal(portal.enrollments[0].session.startTime, '2099-10-07T18:00:00+07:00')
+await store.memberService.cancelClassRegistration(22)
 assert.equal((await store.memberService.getOverview()).enrollments.length, 0)
 forceError = { status: 400, body: { message: 'Membership package is expired or does not cover this class session' } }
-await assert.rejects(store.memberService.enroll(55), /Gói tập/)
+await assert.rejects(store.memberService.registerClass(22), /gói tập/i)
 forceError = { status: 401, body: { message: 'Authentication required' } }
 await assert.rejects(store.api.rooms.list(), e => e.status === 401)
 assert.equal(store.getSnapshot().currentUser, null)
@@ -191,7 +199,7 @@ forceError = null
 
 let release
 const slowStore = createBackendStore({ sessionStorage: memory(), localStorage: memory(), fetchImpl: async (url, options) => {
-  if (url.includes('/api/member/class-enrollments')) return new Promise(resolve => { release = () => resolve(json([])) })
+  if (url.includes('/api/member/classes')) return new Promise(resolve => { release = () => resolve(json([])) })
   return backend(url, options)
 } })
 await slowStore.login('member@example.com', 'password123')
@@ -213,5 +221,6 @@ assert.equal(mapPackage(catalog[0]).days, 30)
 assert.equal(packagePayload({ ...catalog[0], days: 30 }).durationDays, 30)
 assert.equal(mapSession({ scheduleId: 99, classId: 22, startTime: '2099-10-07T18:00:00Z', endTime: '2099-10-07T19:00:00Z' }).startTime, '2099-10-07T18:00:00Z')
 const routes = createControllerApi(async (path, options) => ({ path, options }))
-assert.equal((await routes.cancel(7)).options.method, 'DELETE')
-console.log('PASS: JWT login/register/session reload, all catalog CRUD DTOs, dated schedules and filters, coach data, member enrollment/cancellation, 204/text responses, 400/401/403/network errors, stale session isolation, unsupported features and local avatar separation. No real API writes performed.')
+assert.equal((await routes.cancelClassRegistration(7)).options.method, 'DELETE')
+assert.deepEqual(await routes.payos.retryPayment(5), { path: '/api/payos/payments/5/retry', options: { method: 'POST' } })
+console.log('PASS: JWT login/register/session reload, catalog CRUD, member class registration and roadmap, 204/text responses, 400/401/403/network errors, stale session isolation, and local avatar separation. No real API writes performed.')

@@ -57,7 +57,6 @@ export function createBackendStore({ baseUrl = '/backend', sessionStorage = glob
       const [packages, rooms, classes, schedules, coaches] = await Promise.all([
         api.packages.list(), api.rooms.list(), api.classes.list(),
         api.schedules.list(user.role === 'coach' ? `?coachId=${user.id}` : ''), api.coaches(),
-        user.role === 'admin' ? Promise.resolve(null) : api.roleDashboard(user.role),
       ])
       assertCurrent(version)
       if (id !== refreshId) return
@@ -69,6 +68,12 @@ export function createBackendStore({ baseUrl = '/backend', sessionStorage = glob
     } catch (error) {
       if (version === generation && id === refreshId) publish({ loading: false, loadError: error.message })
     }
+  }
+  const reloadCatalog = async () => {
+    const version = generation
+    const [classes, schedules] = await Promise.all([api.classes.list(), api.schedules.list()])
+    assertCurrent(version)
+    publish({ classes, schedules })
   }
   /**
    * Xử lý chung cho đăng nhập và đăng ký.
@@ -134,15 +139,10 @@ export function createBackendStore({ baseUrl = '/backend', sessionStorage = glob
     getPayment: id => financeRead(member => api.payments.get(id, member)),
     getInvoice: id => financeRead(member => api.invoices.get(id, member)),
     checkout: data => financeWrite(() => api.checkout({ packageId: Number(data.packageId), paymentMethod: data.paymentMethod, note: data.note || '' })),
-    simulate: id => financeWrite(() => api.simulatePayment(id)),
-    async createVnpayUrl(data) {
-      const version = generation
-      const result = await api.vnpay.createPaymentUrl({ packageId: Number(data.packageId), orderInfo: data.orderInfo || '' })
-      assertCurrent(version)
-      if (!result?.paymentUrl) throw new Error('Back-End không trả về đường dẫn thanh toán VNPay.')
-      return result.paymentUrl
-    },
-    mockVnpay: code => financeWrite(() => api.vnpay.mockSuccess(code)),
+    createPayosLink: data => api.payos.createPaymentLink({ packageId: Number(data.packageId), description: data.note || '' }),
+    retryPayosPayment: id => financeRead(() => api.payos.retryPayment(id)),
+    reconcilePayosPayment: id => financeWrite(() => api.payos.reconcilePayment(id)),
+    getMembershipQuote: packageId => api.membershipQuote(packageId),
     cashCheckout: data => financeWrite(() => api.payments.cashCheckout({ memberId: Number(data.memberId), packageId: Number(data.packageId), note: data.note || '' })),
     confirm: (id, data) => financeWrite(() => api.payments.confirm(id, data)),
     cancel: (id, reason) => financeWrite(() => api.payments.cancel(id, reason)),
@@ -162,27 +162,24 @@ export function createBackendStore({ baseUrl = '/backend', sessionStorage = glob
       const version = generation
       if (snapshot.currentUser?.role !== 'member') throw new Error('Vui lòng đăng nhập bằng tài khoản hội viên.')
       const user = snapshot.currentUser
-      const [packages, rooms, classes, schedules, coaches, available, mine, memberships, classStats] = await Promise.all([
-        api.packages.list(), api.rooms.list(), api.classes.list(), api.schedules.list(), api.coaches(), api.availableSessions(), api.enrollments(),
-        api.myMemberships(), FEATURES.classRegistration ? api.classStats() : Promise.resolve(null),
+      const [packages, rooms, classes, schedules, coaches, memberships, classStats, attendance] = await Promise.all([
+        api.packages.list(), api.rooms.list(), api.classes.list(), api.schedules.list(), api.coaches(),
+        api.myMemberships(), api.classStats(), api.myAttendance(),
       ])
       assertCurrent(version)
+      publish({ classes, schedules })
       const lookup = { rooms, classes, schedules, coaches: coaches.map(mapUser) }
-      const enrollments = mine.map(e => ({ id: e.enrollmentId, userId: user.id, sessionId: e.scheduleId, createdAt: e.enrolledAt, session: mapSession(e, lookup) }))
-      const sessions = available.map(s => {
-        const session = mapSession(s, lookup)
-        const conflict = enrollments.some(e => e.sessionId !== session.id && new Date(e.session.startTime) < new Date(session.endTime) && new Date(session.startTime) < new Date(e.session.endTime))
-        return conflict ? { ...session, allowed: false, reason: 'Buổi học trùng với lịch tập đã đăng ký.' } : session
-      })
-      return { user, packages: packages.map(mapPackage), memberships, status: membershipStatus(memberships), sessions, enrollments, classStats }
+      const mine = new Set(classStats.filter(stat => stat.registeredByMe).map(stat => Number(stat.classId)))
+      const sessions = schedules.filter(s => mine.has(Number(s.classId))).map(s => mapSession(s, lookup))
+      const enrollments = sessions.map(session => ({ id: `class:${session.classId}:${session.id}`, userId: user.id, sessionId: session.id, session }))
+      return { user, packages: packages.map(mapPackage), memberships, status: membershipStatus(memberships), sessions, enrollments, classStats, attendance }
     },
     purchase: paymentService.checkout,
-    async enroll(id) {
+    async markAttendanceRead(id) {
       const version = generation
-      const result = await api.enroll(id)
+      await api.markAttendanceRead(id)
       assertCurrent(version)
       publish({ memberRevision: snapshot.memberRevision + 1 })
-      return result
     },
         // Đăng ký / hủy đăng ký LỚP (FEATURES.classRegistration). Hủy lớp: BE cũng gỡ các buổi học sắp tới của lớp đó.
     async registerClass(id) {
@@ -198,17 +195,11 @@ export function createBackendStore({ baseUrl = '/backend', sessionStorage = glob
       assertCurrent(version)
       publish({ memberRevision: snapshot.memberRevision + 1 })
     },
-    async cancelEnrollment(id) {
-      const version = generation
-      await api.cancel(id)
-      assertCurrent(version)
-      publish({ memberRevision: snapshot.memberRevision + 1 })
-    },
   }
   return {
     getSnapshot: () => snapshot,
     subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener) },
-    api, request, memberService, paymentService, refresh,
+    api, request, memberService, paymentService, refresh, reloadCatalog,
     // Login.jsx dùng hàm này: nhận hai tham số, trim email và xử lý toàn bộ phiên.
     // Khác api.login(body): hàm ở api.js chỉ gửi HTTP, không lưu user/token vào store.
     login: (email, password) => authenticate('login', { email: email.trim(), password }),
@@ -227,10 +218,30 @@ export function createBackendStore({ baseUrl = '/backend', sessionStorage = glob
     deletePackage: id => remove('packages', 'packages', id),
     saveRoom: room => save('rooms', 'rooms', room, { roomCode: normalizeCode(room.roomCode), name: room.name.trim(), capacity: Number(room.capacity), type: room.type }),    deleteRoom: id => remove('rooms', 'rooms', id),
     saveClass: cls => save('classes', 'classes', cls, { classCode: normalizeCode(cls.classCode), name: cls.name.trim(), subject: cls.subject, description: cls.description || '', level: cls.level ?? null, capacity: Number(cls.capacity), coachId: cls.coachId ? Number(cls.coachId) : null,
-  ...(FEATURES.classDates && { startDate: cls.startDate || null, endDate: cls.endDate || null, registrationOpenAt: toPayloadStamp(cls.registrationOpenAt, FEATURES.registrationTimes), registrationCloseAt: toPayloadStamp(cls.registrationCloseAt, FEATURES.registrationTimes) }) }),
+  ...(FEATURES.classDates && { startDate: cls.startDate || null, endDate: cls.endDate || null, registrationOpenAt: null, registrationCloseAt: toPayloadStamp(cls.registrationCloseAt, FEATURES.registrationTimes) }) }),
     deleteClass: id => remove('classes', 'classes', id),
     saveSchedule: schedule => save('schedules', 'schedules', schedule, { classId: Number(schedule.classId), roomId: Number(schedule.roomId), coachId: schedule.coachId ? Number(schedule.coachId) : null, startTime: schedule.startTime, endTime: schedule.endTime,
       ...(FEATURES.sessionDescription && { description: String(schedule.description ?? '').trim() || null }) }),
+    async createSessions(sessions) {
+      const version = generation
+      const created = await api.createSessions(sessions)
+      assertCurrent(version)
+      publish({ schedules: [...snapshot.schedules, ...created], memberRevision: snapshot.memberRevision + 1 })
+      return created
+    },
+    async transferSessionCoach(id, coachId) {
+      const version = generation
+      const updated = await api.transferSessionCoach(id, Number(coachId))
+      assertCurrent(version)
+      publish({ schedules: snapshot.schedules.map(s => s.id === id ? updated : s), memberRevision: snapshot.memberRevision + 1 })
+      return updated
+    },
+    coachRoster: id => api.coachRoster(id),
+    async markAttendance(id, memberId, present) {
+      const result = await api.markAttendance(id, memberId, present)
+      publish({ memberRevision: snapshot.memberRevision + 1 })
+      return result
+    },
     // FEATURES.coachSubjects: lưu bộ môn của coach rồi cập nhật coach trong danh sách users (nếu đang có).
     async saveCoachSubjects(id, subjects) {
       const version = generation
