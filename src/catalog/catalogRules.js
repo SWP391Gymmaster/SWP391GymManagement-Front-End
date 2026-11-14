@@ -2,8 +2,8 @@
 import { vietnamTime } from '../services/api.js'
 
 export const STATUS = {
-  upcoming: { label: 'Chưa mở', badge: 'badge-wait' },
   open: { label: 'Đang mở', badge: 'badge-green' },
+  pending: { label: 'Chưa mở đăng ký', badge: 'badge-amber' },
   full: { label: 'Đã đầy', badge: 'badge-red' },
   closed: { label: 'Đã đóng', badge: 'badge-gray' },
 }
@@ -14,7 +14,7 @@ export const TIME_SLOTS = [
   { value: 'evening', label: 'Tối (từ 17h)', from: 17, to: 24 },
 ]
 
-export const EMPTY_FILTERS = { subject: '', coachId: '', date: '', slot: '', status: '', hasSeats: false, showClosed: false }
+export const EMPTY_FILTERS = { subject: '', coachId: '', date: '', slot: '', status: '', hasSeats: false, showClosed: true }
 
 const at = (value) => new Date(vietnamTime(value))
 // Mốc thời gian đăng ký sớm: BE có thể trả ngày (yyyy-MM-dd) hoặc ngày giờ (yyyy-MM-ddTHH:mm:ss).
@@ -23,26 +23,16 @@ const hasTime = (value) => String(value).length > 10
 const dayStart = (value) => (!value ? null : hasTime(value) ? at(`${String(value).slice(0, 16)}:00`) : at(`${String(value).slice(0, 10)}T00:00:00`))
 const dayEnd = (value) => (!value ? null : hasTime(value) ? at(`${String(value).slice(0, 16)}:59`) : at(`${String(value).slice(0, 10)}T23:59:59`))
 
-// Vòng đời của lớp theo ngày (chỉ có tác dụng khi BE đã trả các trường ngày):
-//  - Quá ngày kết thúc lớp             → closed   (Đã đóng, mặc định ẩn)
-//  - Trước/trong thời gian đăng ký sớm → upcoming (Chưa mở)
-//  - Sau khi đăng ký sớm kết thúc      → null     (rồi xét theo buổi học/chỗ trống: Đang mở hoặc Đã đầy)
+// Trạng thái đăng ký lớp theo hạn chót; lớp đã đăng ký vẫn hiện trong catalog.
 export function windowStatus(cls, now) {
-  const open = dayStart(cls.registrationOpenAt)
-  const closeEnd = dayEnd(cls.registrationCloseAt)
+  const openStart = cls.registrationOpenAt ? (hasTime(cls.registrationOpenAt) ? at(cls.registrationOpenAt) : dayStart(cls.registrationOpenAt)) : null
+  const closeEnd = cls.registrationCloseAt ? (hasTime(cls.registrationCloseAt) ? at(cls.registrationCloseAt) : dayEnd(cls.registrationCloseAt)) : null
+  const start = dayStart(cls.startDate)
   const end = dayEnd(cls.endDate)
   if (end && now > end) return 'closed'
-  if ((open && now < open) || (closeEnd && now <= closeEnd)) return 'upcoming'
-  return null
-}
-
-// Hội viên được đăng ký LỚP không: lớp đang mở thì được; lớp chưa mở chỉ được khi đã tới giờ mở đăng ký sớm.
-// (Đăng ký buổi học còn chặt hơn: chỉ khi lớp đã mở thật, xem sessionsOpen trong buildCatalog.)
-export function canRegister(cls, status, now) {
-  if (status === 'open') return true
-  if (status !== 'upcoming') return false
-  const open = dayStart(cls.registrationOpenAt)
-  return Boolean(open && now >= open)
+  if ((closeEnd && now >= closeEnd) || (!closeEnd && start && now >= start)) return 'closed'
+  if (openStart && now < openStart) return 'pending'
+  return 'open'
 }
 
 // available: danh sách buổi còn chỗ do BE trả (chỉ hội viên có); null nếu chưa biết sĩ số.
@@ -70,25 +60,21 @@ export function buildCatalog({ classes, schedules, available = null, classStats 
     const hasCounts = Boolean(free)
     const classStat = stats ? (stats.get(Number(cls.id)) || { registeredCount: 0, remainingSlots: cls.capacity, registeredByMe: false }) : null
     let status = windowStatus(cls, now)
-    if (!status) {
-      status = 'open'
-      if (!sessions.length) status = 'upcoming' // chưa xếp lịch
-      else if (!upcoming.length) status = 'closed'
-      else if (classStat) { if (classStat.remainingSlots === 0) status = 'full' }
-      else if (hasCounts && upcoming.every((s) => s.full)) status = 'full'
+    if (!upcoming.length) status = 'closed'
+    if (status === 'open') {
+      if (classStat?.remainingSlots === 0) status = 'full'
+      else if (!classStat && hasCounts && upcoming.every(s => s.full)) status = 'full'
     }
     const next = upcoming.find((s) => !s.full) || upcoming[0] || null
     // Khoảng ngày suy ra từ các buổi học (dùng khi BE chưa có ngày bắt đầu/kết thúc của lớp)
     const range = sessions.length
       ? { firstDate: sessions[0].startTime.slice(0, 10), lastDate: sessions[sessions.length - 1].startTime.slice(0, 10), sessionCount: sessions.length }
       : { firstDate: '', lastDate: '', sessionCount: 0 }
-    const timeOk = canRegister(cls, status, now)
-    // Đăng ký BUỔI HỌC chỉ mở khi lớp đã mở thật (sau khi đăng ký sớm kết thúc). Trong thời gian đăng ký sớm chỉ đăng ký được LỚP.
-    const sessionsOpen = status === 'open' || status === 'full'
-    // Đăng ký LỚP: trong thời gian cho phép, lớp còn chỗ và hội viên chưa đăng ký lớp.
-    const canJoin = Boolean(classStat) && timeOk && !classStat.registeredByMe && classStat.remainingSlots > 0
+    const timeOk = status === 'open'
+    // Đăng ký lớp: trong thời gian cho phép, lớp còn chỗ và hội viên chưa đăng ký.
+    const canJoin = Boolean(classStat) && timeOk && upcoming.length > 0 && !classStat.registeredByMe && classStat.remainingSlots > 0
     return {
-      cls, sessions, upcoming, next, status, canRegister: timeOk, sessionsOpen, classStat, canJoin, hasCounts, ...range,
+      cls, sessions, upcoming, next, status, canRegister: timeOk, classStat, canJoin, hasCounts, ...range,
       coachIds: [...new Set([cls.coachId, ...sessions.map((s) => s.coachId)].filter(Boolean).map(Number))],
     }
   })
@@ -104,9 +90,9 @@ export function filterCatalog(items, f) {
   return items.filter((item) => {
     if (f.subject && item.cls.subject !== f.subject) return false
     if (f.coachId && !item.coachIds.includes(Number(f.coachId))) return false
-    if (item.status === 'closed' && !f.showClosed && f.status !== 'closed') return false
+    if (item.status === 'closed' && !item.classStat?.registeredByMe && !f.showClosed && f.status !== 'closed') return false
     if (f.status && item.status !== f.status) return false
-    if (f.hasSeats && item.hasCounts && !item.upcoming.some((s) => !s.full)) return false
+    if (f.hasSeats && (item.classStat ? item.classStat.remainingSlots === 0 : item.hasCounts && !item.upcoming.some(s => !s.full))) return false
     if (f.date || f.slot) {
       const ok = item.sessions.some((s) => (!f.date || s.startTime.slice(0, 10) === f.date) && (!f.slot || slotOf(s.startTime) === f.slot))
       if (!ok) return false

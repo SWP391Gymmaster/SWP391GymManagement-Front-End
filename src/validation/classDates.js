@@ -53,17 +53,17 @@ export function validateClassDates(form, { now = null, original = null, timed = 
       errors.push(timed ? 'Thời gian mở đăng ký sớm không được trước thời điểm hiện tại.' : 'Ngày mở đăng ký sớm không được trước ngày hiện tại.')
     }
     if (close && changed('registrationCloseAt', close) && (timed ? close <= current : close < current.slice(0, 10))) {
-      errors.push(timed ? 'Thời gian kết thúc đăng ký sớm phải sau thời điểm hiện tại.' : 'Ngày kết thúc đăng ký sớm không được trước ngày hiện tại.')
+      errors.push(timed ? 'Hạn đăng ký phải sau thời điểm hiện tại.' : 'Hạn đăng ký không được trước ngày hiện tại.')
     }
   }
   if (start && end && end <= start) errors.push('Ngày kết thúc lớp phải sau ngày bắt đầu.')
-  if (Boolean(open) !== Boolean(close)) errors.push('Nhập đủ cả thời gian mở và kết thúc đăng ký sớm, hoặc để trống cả hai.')
+  if (requireDates && !close) errors.push('Vui lòng nhập hạn đăng ký lớp.')
   if (open && close && (timed ? close <= open : close < open)) {
-    errors.push(timed ? 'Thời gian kết thúc đăng ký sớm phải sau thời gian mở.' : 'Ngày kết thúc đăng ký sớm phải từ ngày mở trở đi.')
+    errors.push(timed ? 'Hạn đăng ký phải sau thời gian mở.' : 'Hạn đăng ký phải từ ngày mở trở đi.')
   }
   if (close && start) {
-    if (timed && close > `${start}T00:00`) errors.push(`Đăng ký sớm phải kết thúc trước 00:00 ngày bắt đầu lớp (${dmy(start)}).`)
-    if (!timed && close >= start) errors.push('Ngày kết thúc đăng ký sớm phải trước ngày bắt đầu lớp.')
+    if (timed && close > `${start}T00:00`) errors.push(`Hạn đăng ký phải trước 00:00 ngày bắt đầu lớp (${dmy(start)}).`)
+    if (!timed && close >= start) errors.push('Hạn đăng ký phải trước ngày bắt đầu lớp.')
   }
   return errors
 }
