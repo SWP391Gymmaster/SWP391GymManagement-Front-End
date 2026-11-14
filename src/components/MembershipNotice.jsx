@@ -8,7 +8,7 @@ export default function MembershipNotice({ status, onChoose }) {
   if (status.status === 'active' && !status.expiringSoon) return null
   const message = status.status === 'none' ? 'Bạn cần có gói tập còn hiệu lực để đăng ký.'
     : status.status === 'expired' ? 'Gói tập đã hết hạn. Vui lòng gia hạn trước khi đăng ký.'
-      : status.status === 'upcoming' ? 'Gói tập chưa có hiệu lực. Bạn chưa thể đăng ký buổi học.'
+      : status.status === 'upcoming' ? 'Gói tập chưa có hiệu lực. Bạn chưa thể đăng ký lớp.'
         : 'Gói tập sắp hết hạn. Hãy gia hạn để không gián đoạn lịch tập.'
   return <div className={`membership-notice ${status.status === 'expired' ? 'notice-danger' : ''}`} role="status">
     <Icon name="calendar" size={24} />
