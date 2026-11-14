@@ -4,8 +4,9 @@ import { usePreferences } from '../../preferences/context'
 import Modal from '../../components/Modal'
 import { formatMoney } from '../../store/utils'
 import { mapPackage } from '../../services/api'
+import PackageSubjects from '../../components/PackageSubjects'
 
-const EMPTY = { name: '', price: '', days: 30, description: '', active: true }
+const EMPTY = { packageCode: '', name: '', price: '', days: 30, description: '', allowedSubjects: [], active: true }
 
 /**
  * T3.3: CRUD Package & MembershipPackage
@@ -39,6 +40,7 @@ export default function AdminPackages() {
 
   const submit = (e) => {
     e.preventDefault()
+    if (!editing.allowedSubjects?.length) { setError('Vui lòng chọn ít nhất một bộ môn.'); return }
     void perform(async () => {
       // Validate tên trùng ở client (hỗ trợ thêm, server sẽ validate chính xác)
       const duplicate = packages.find(
@@ -56,19 +58,7 @@ export default function AdminPackages() {
 
   const set = (key) => (e) => setEditing({ ...editing, [key]: e.target.value })
 
-  // Determine if a package has transactions (simplified: we use a heuristic - 
-  // if the package has an id from the server and is not new, we check via API response)
-  // In real implementation, the BE would return a hasTransactions field.
-  // For now we treat all saved packages with id as potentially having transactions
-  // and let the server enforce the delete/edit restriction.
-  const canEditDelete = (pkg) => {
-    // Only newly-created packages (no transactions) can be freely edited/deleted
-    // This is controlled server-side; we show all buttons and let server return error
-    // The task says: hide edit/delete if has transactions, only show "Tạm ngưng"
-    // Since we don't have hasTransactions from API yet, we'll show all buttons
-    // and server will reject if needed
-    return true
-  }
+  const canEditDelete = pkg => !pkg.hasTransactions
 
   // Group packages by status
   const activePackages = packages.filter((p) => p.active)
@@ -79,7 +69,7 @@ export default function AdminPackages() {
       <div className="section-intro">
         <span className="eyebrow">{t('QUẢN LÝ GÓI TẬP')}</span>
         <h2>{t('Package & MembershipPackage')}</h2>
-        <p>{t('Tạo, chỉnh sửa và quản lý trạng thái các gói thành viên. Gói đã có giao dịch chỉ có thể tạm ngưng.')}</p>
+        <p>{t('Tạo và quản lý gói thành viên. Gói đã có giao dịch không thể sửa hoặc xóa; gói có hội viên đang học lớp cũng không thể tạm ngưng.')}</p>
       </div>
 
       <div className="toolbar">
@@ -130,7 +120,7 @@ export default function AdminPackages() {
                 <div className="pkg-actions">
                   <button
                     className="btn btn-sm"
-                    disabled={busy}
+                    disabled={busy || !canEditDelete(p)}
                     onClick={() =>
                       perform(async () => setEditing(mapPackage(await api.packages.get(p.id))))
                     }
@@ -151,7 +141,7 @@ export default function AdminPackages() {
                   </button>
                   <button
                     className="btn btn-sm btn-ghost"
-                    disabled={busy}
+                    disabled={busy || !canEditDelete(p)}
                     onClick={() => {
                       setDeleting(p)
                       setError('')
@@ -185,7 +175,7 @@ export default function AdminPackages() {
                 <div className="pkg-actions">
                   <button
                     className="btn btn-sm"
-                    disabled={busy}
+                    disabled={busy || !canEditDelete(p)}
                     onClick={() =>
                       perform(async () => setEditing(mapPackage(await api.packages.get(p.id))))
                     }
@@ -206,7 +196,7 @@ export default function AdminPackages() {
                   </button>
                   <button
                     className="btn btn-sm btn-ghost"
-                    disabled={busy}
+                    disabled={busy || !canEditDelete(p)}
                     onClick={() => {
                       setDeleting(p)
                       setError('')
@@ -237,6 +227,7 @@ export default function AdminPackages() {
         >
           <form className="form" onSubmit={submit}>
             <fieldset className="form api-fieldset" disabled={busy}>
+              <label>Mã gói <input value={editing.packageCode || ''} onChange={set('packageCode')} required maxLength={32} /></label>
               <label>
                 {t('Tên gói')} <span className="danger">*</span>
                 <input value={editing.name} onChange={set('name')} required placeholder="VD: Gold 3 tháng" />
@@ -251,6 +242,7 @@ export default function AdminPackages() {
                   <input type="number" min="1" step="1" value={editing.days} onChange={set('days')} required />
                 </label>
               </div>
+              <PackageSubjects value={editing.allowedSubjects} onChange={allowedSubjects => setEditing({ ...editing, allowedSubjects })} />
               <label>
                 {t('Mô tả quyền lợi')}
                 <textarea rows="3" value={editing.description || ''} onChange={set('description')} placeholder="Mô tả quyền lợi gói tập..." />

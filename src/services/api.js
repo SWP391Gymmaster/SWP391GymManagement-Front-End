@@ -1,9 +1,11 @@
-﻿// All Spring controllers share this transport. /backend is proxied by Vite in development.
+// All Spring controllers share this transport. /backend is proxied by Vite in development.
 export class ApiError extends Error {
   // code = thông điệp gốc từ BE (tiếng Anh), dùng để FE nhận diện loại lỗi
   constructor(message, status = 0, details = {}, code = '') { super(message); this.name = 'ApiError'; this.status = status; this.details = details; this.code = code }
 }
 const errors = {
+  'Membership package has already been purchased': 'Bạn đã mua gói này và không thể mua lại.',
+  'Package has members registered in ongoing classes; cannot suspend': 'Không thể tạm ngưng gói: hội viên đang dùng gói này để tham gia lớp còn buổi học.',
   'Payment not found': 'Không tìm thấy thanh toán.',
   'Invoice not found': 'Không tìm thấy hóa đơn.',
   'Member not found': 'Không tìm thấy hội viên.',
@@ -29,14 +31,12 @@ const errors = {
   'Invalid request data': 'Dữ liệu không hợp lệ. Vui lòng kiểm tra biểu mẫu.',
   'Membership package is expired or does not cover this class session': 'Bạn chưa mua gói hoặc hiệu lực gói tập không bao gồm buổi học này. Vui lòng mua gói tập!',
   'Class session has already started': 'Buổi học đã bắt đầu.',
-  'Already enrolled in this class session': 'Bạn đã đăng ký buổi học này.',
   'Class session is full': 'Buổi học đã đủ chỗ.',
-    'Not registered in this class': 'Bạn cần đăng ký lớp trước khi đăng ký buổi học của lớp này.',
   'Already registered in this class': 'Bạn đã đăng ký lớp này.',
   'Class is full': 'Lớp đã đủ sĩ số.',
   'Class registration not found': 'Bạn chưa đăng ký lớp này.',
   'Class registration is not open': 'Lớp chưa mở đăng ký hoặc đã đóng đăng ký.',
-  'Class session registration is not open yet': 'Chưa mở đăng ký buổi học. Bạn có thể đăng ký buổi học sau khi thời gian đăng ký sớm kết thúc.',
+  'Class schedule conflicts with an existing registration': 'Lịch học lớp này trùng với lớp bạn đã đăng ký.',
   'Schedule not found': 'Buổi học không còn khả dụng. Vui lòng tải lại lịch.',
   'Coach already has a schedule during this time': 'Huấn luyện viên bị trùng lịch trong khung giờ này.',
   'Room is already booked during this time': 'Phòng tập bị trùng lịch trong khung giờ này.',
@@ -45,11 +45,18 @@ const errors = {
   'Class has no coach assigned': 'Lớp chưa được phân công huấn luyện viên.',
   'Coach not found': 'Không tìm thấy huấn luyện viên.',
   'Schedule has enrollments': 'Không thể xóa buổi học đã có hội viên đăng ký.',
+  'Schedule has attendance': 'Không thể xóa buổi học đã có điểm danh.',
   'Class has schedules with enrollments': 'Không thể xóa lớp đã có hội viên đăng ký.',
   'Class still has schedules, delete them first': 'Hãy xóa các buổi học trước khi xóa lớp.',
   'Capacity cannot be lower than current enrollment count': 'Sĩ số không được nhỏ hơn số hội viên đã đăng ký.',
   'Room code must not be blank': 'Mã phòng không được để trống.',
   'Class code must not be blank': 'Mã lớp không được để trống.',
+  'Coach does not teach this session': 'Bạn không phụ trách buổi học này.',
+  'Attendance status is required': 'Chọn trạng thái điểm danh.',
+  'Class session has not started': 'Chưa đến giờ điểm danh.',
+  'Member is not registered in this class': 'Hội viên chưa đăng ký lớp này.',
+  'Use coach transfer to change a class session coach': 'Vui lòng dùng chức năng chuyển huấn luyện viên. Buổi học phải giữ nguyên lớp.',
+  'Batch must contain 1 to 100 class sessions': 'Chỉ tạo từ 1 đến 100 buổi học mỗi lần.',
   'Room is used by existing schedules': 'Phòng đang được dùng trong lịch học, không thể xóa.',
   'Coach does not teach this subject': 'Huấn luyện viên này không được phân công dạy bộ môn của lớp.',
   'Coach already has the maximum number of classes in this period': 'Huấn luyện viên đã đủ 5 lớp trong khoảng thời gian này.',
@@ -127,6 +134,12 @@ export function createControllerApi(request) {
       schedules: id => request(`/api/rooms/${encodeURIComponent(id)}/schedules`),
     },
     classes: resource('/api/classes'), schedules: resource('/api/schedules'),
+    createSessions: body => request('/api/schedules/batch', { method: 'POST', body }),
+    transferSessionCoach: (id, coachId) => request(`/api/schedules/${encodeURIComponent(id)}/coach`, { method: 'PUT', body: { coachId } }),
+    coachRoster: id => request(`/api/coach/schedules/${encodeURIComponent(id)}/attendance`),
+    markAttendance: (id, memberId, present) => request(`/api/coach/schedules/${encodeURIComponent(id)}/attendance`, { method: 'POST', body: { memberId, present } }),
+    myAttendance: () => request('/api/member/attendance'),
+    markAttendanceRead: id => request(`/api/member/attendance/${encodeURIComponent(id)}/read`, { method: 'POST' }),
     coaches: () => request('/api/coaches'),
     // FEATURES.coachSubjects: gán bộ môn cho coach, BE trả coach kèm mảng subjects.
     saveCoachSubjects: (id, subjects) => request(`/api/admin/coaches/${encodeURIComponent(id)}/subjects`, { method: 'PUT', body: { subjects } }),
@@ -146,13 +159,14 @@ export function createControllerApi(request) {
       deactivate: id => request(`/api/admin/users/${encodeURIComponent(id)}`, { method: 'DELETE' }),
       resendVerification: id => request(`/api/admin/users/${encodeURIComponent(id)}/verification-email`, { method: 'POST' }),
     },
-    vnpay: {
-      createPaymentUrl: body => request('/api/vnpay/create-payment-url', { method: 'POST', body }),
-      mockSuccess: code => request(`/api/vnpay/mock-success/${encodeURIComponent(code)}`, { method: 'POST' }),
+    payos: {
+      createPaymentLink: body => request('/api/payos/create-payment-link', { method: 'POST', body }),
+      retryPayment: id => request(`/api/payos/payments/${encodeURIComponent(id)}/retry`, { method: 'POST' }),
+      reconcilePayment: id => request(`/api/payos/payments/${encodeURIComponent(id)}/reconcile`, { method: 'POST' }),
     },
     myMemberships: () => request('/api/member/memberships'),
+    membershipQuote: packageId => request(`/api/member/memberships/quote?packageId=${encodeURIComponent(packageId)}`),
     checkout: body => request('/api/member/payments/checkout', { method: 'POST', body }),
-    simulatePayment: id => request(`/api/member/payments/${encodeURIComponent(id)}/simulate-pay`, { method: 'POST' }),
     payments: {
       list: member => request(member ? '/api/member/payments' : '/api/payments'),
       get: (id, member) => request(`${member ? '/api/member/payments' : '/api/payments'}/${encodeURIComponent(id)}`),
@@ -164,19 +178,14 @@ export function createControllerApi(request) {
       list: member => request(member ? '/api/member/invoices' : '/api/invoices'),
       get: (id, member) => request(`${member ? '/api/member/invoices' : '/api/invoices'}/${encodeURIComponent(id)}`),
     },
-    availableSessions: () => request('/api/member/class-sessions/available'),
-    enrollments: () => request('/api/member/class-enrollments'),
-    enroll: id => request(`/api/member/class-sessions/${encodeURIComponent(id)}/enrollment`, { method: 'POST' }),
-    cancel: id => request(`/api/member/class-sessions/${encodeURIComponent(id)}/enrollment`, { method: 'DELETE' }),
-        // Đăng ký LỚP (cần BE hỗ trợ, bật FEATURES.classRegistration)
-      // Đăng ký LỚP (cần BE hỗ trợ, bật FEATURES.classRegistration)
+    // Đăng ký lớp là thao tác duy nhất của hội viên.
     classStats: () => request('/api/member/classes'),
     registerClass: id => request(`/api/member/classes/${encodeURIComponent(id)}/registration`, { method: 'POST' }),
     cancelClassRegistration: id => request(`/api/member/classes/${encodeURIComponent(id)}/registration`, { method: 'DELETE' }),
   }
 }
 export const mapPackage = p => ({ ...p, active: p.active ?? p.status === 'ACTIVE', days: p.durationDays })
-export const packagePayload = p => ({ packageCode: p.packageCode?.trim(), name: p.name.trim(), description: p.description || '', price: Number(p.price), durationDays: Number(p.days), active: Boolean(p.active) })
+export const packagePayload = p => ({ packageCode: p.packageCode?.trim(), name: p.name.trim(), description: p.description || '', price: Number(p.price), durationDays: Number(p.days), status: p.active ? 'ACTIVE' : 'SUSPENDED', allowedSubjects: (Array.isArray(p.allowedSubjects) ? p.allowedSubjects : String(p.allowedSubjects || '').split(',')).map(s => s.trim()).filter(Boolean) })
 // Id tài khoản vừa tạo từ POST /api/admin/users: BE trả { user: { id, ... }, verificationEmailStatus }; dự phòng id / userId ở cấp ngoài.
 export const createdUserId = r => r?.user?.id ?? r?.user?.userId ?? r?.id ?? r?.userId ?? null
 // subjects: bộ môn coach được dạy (FEATURES.coachSubjects); BE chưa trả thì là mảng rỗng.
@@ -194,7 +203,6 @@ export function mapSession(value, { classes = [], rooms = [], coaches = [], sche
     coachName: coaches.find(c => c.id === (value.coachId ?? schedule.coachId))?.name || '—',
     roomName: rooms.find(r => r.id === (value.roomId ?? schedule.roomId))?.name || '—',
     capacity: value.capacity ?? cls.capacity, registeredCount: value.registeredCount, remainingSlots: value.remainingSlots,
-    allowed: !value.registeredByMe && value.remainingSlots !== 0 && new Date(vietnamTime(startTime)) > new Date(),
-    reason: value.registeredByMe ? 'Bạn đã đăng ký buổi học này.' : value.remainingSlots === 0 ? 'Buổi học đã đủ chỗ.' : '',
+    description: value.description ?? schedule.description ?? '',
   }
 }
