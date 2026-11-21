@@ -36,3 +36,21 @@
 .admin-dashboard .quick { gap: 9px; }
 .admin-dashboard .quick .btn { justify-content: flex-start; min-height: 42px; border-radius: 10px; }
 .admin-dashboard > .alert { padding: 14px 16px; border: 1px solid rgba(47, 111, 202, .12); }
+
+/* Account and staff lists */
+.admin-users .toolbar, .admin-staff .toolbar { align-items: flex-end; gap: 14px; }
+.admin-users .toolbar > form, .admin-staff .staff-filters { padding: 14px; border: 1px solid var(--border); border-radius: 13px; background: var(--surface); }
+.admin-users .toolbar > form { flex: 1; flex-wrap: wrap; justify-content: flex-start; margin: 0; }
+.admin-users .toolbar > form input { flex: 1 1 220px; }
+.admin-users .toolbar > form select { flex: 1 1 150px; }
+.admin-users .toolbar > .btn, .admin-staff .toolbar > .btn { min-height: 44px; padding-inline: 17px; border-radius: 10px; }
+.admin-users .card.table-scroll, .admin-staff .card { padding: 0; overflow: hidden; border-radius: 14px; }
+.admin-users .table, .admin-staff .table { min-width: 850px; font-size: 12px; }
+.admin-users .table th, .admin-staff .table th { padding: 14px 15px; background: var(--bg); font-size: 10px; letter-spacing: .55px; }
+.admin-users .table td, .admin-staff .table td { padding: 15px; line-height: 1.55; }
+.admin-users .table tbody tr, .admin-staff .table tbody tr { transition: background .15s ease; }
+.admin-users .table tbody tr:hover, .admin-staff .table tbody tr:hover { background: color-mix(in srgb, var(--primary-soft) 42%, var(--surface)); }
+.admin-users .table .form-actions { flex-wrap: wrap; justify-content: flex-start; gap: 6px; margin: 0; }
+.admin-users .table .btn-sm, .admin-staff .table .btn-sm { padding: 6px 9px; font-size: 11px; border-radius: 7px; }
+.admin-users > .form-actions { padding: 12px 2px; align-items: center; }
+.admin-users > .form-actions .btn, .admin-staff .pagination .btn { border-radius: 9px; }
