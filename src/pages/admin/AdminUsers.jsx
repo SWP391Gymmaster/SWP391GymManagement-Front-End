@@ -96,7 +96,16 @@ export default function AdminUsers() {
     <div className="card table-scroll"><table className="table"><thead><tr><th>Tài khoản</th><th>Email</th><th>Vai trò</th><th>Trạng thái</th><th>Xác minh email</th><th>Thao tác</th></tr></thead><tbody>
       {loading && <tr><td colSpan={6}>Đang tải tài khoản…</td></tr>}
       {!loading && !result?.content?.length && <tr><td colSpan={6}>Không tìm thấy tài khoản.</td></tr>}
-      {!loading && result?.content?.map(user => <tr key={user.id}><td><strong>{user.fullName}</strong><div className="small muted">{user.userName} · #{user.id}</div></td><td>{user.email}<div className="small muted">{user.phone || 'Chưa có số điện thoại'}</div></td><td>{user.role}</td><td>{user.enabled ? 'Đang hoạt động' : 'Đã vô hiệu hóa'}</td><td>{user.emailVerified ? 'Đã xác minh' : 'Chưa xác minh'}</td><td><div className="form-actions"><button className="btn btn-sm" disabled={busy} onClick={() => void openEdit(user)}>Sửa</button>{user.enabled ? <button className="btn btn-sm" disabled={busy} onClick={() => void setStatus(user, false)}>Vô hiệu hóa</button> : <button className="btn btn-sm" disabled={busy} onClick={() => void setStatus(user, true)}>Kích hoạt</button>}{!user.emailVerified && user.enabled && <button className="btn btn-sm" disabled={busy} onClick={() => void resend(user)}>Gửi lại mail</button>}</div></td></tr>)}
+      {!loading && result?.content?.map(user => (
+        <tr key={user.id}>
+          <td><strong>{user.fullName}</strong><div className="small muted">{user.userName} · #{user.id}</div></td>
+          <td>{user.email}<div className="small muted">{user.phone || 'Chưa có số điện thoại'}</div></td>
+          <td><span className="badge badge-gray">{user.role}</span></td>
+          <td><span className={`badge ${user.enabled ? 'badge-green' : 'badge-red'}`}>{user.enabled ? 'Đang hoạt động' : 'Đã vô hiệu hóa'}</span></td>
+          <td><span className={`badge ${user.emailVerified ? 'badge-blue' : 'badge-amber'}`}>{user.emailVerified ? 'Đã xác minh' : 'Chưa xác minh'}</span></td>
+          <td><div className="form-actions"><button className="btn btn-sm" disabled={busy} onClick={() => void openEdit(user)}>Sửa</button>{user.enabled ? <button className="btn btn-sm" disabled={busy} onClick={() => void setStatus(user, false)}>Vô hiệu hóa</button> : <button className="btn btn-sm" disabled={busy} onClick={() => void setStatus(user, true)}>Kích hoạt</button>}{!user.emailVerified && user.enabled && <button className="btn btn-sm" disabled={busy} onClick={() => void resend(user)}>Gửi lại mail</button>}</div></td>
+        </tr>
+      ))}
     </tbody></table></div>
     <div className="form-actions"><span className="muted">{result?.totalElements ?? 0} tài khoản · Trang {(result?.page ?? 0) + 1}/{Math.max(result?.totalPages ?? 1, 1)}</span><button className="btn" disabled={page <= 0 || loading} onClick={() => { const p = page - 1; setPage(p); void load(p) }}>Trang trước</button><button className="btn" disabled={loading || page + 1 >= (result?.totalPages ?? 0)} onClick={() => { const p = page + 1; setPage(p); void load(p) }}>Trang sau</button></div>
     {editing && <Modal title={editing === 'new' ? 'Tạo tài khoản' : 'Cập nhật tài khoản'} onClose={() => { if (!busy) setEditing(null) }}><form className="form" onSubmit={submit}><fieldset className="form api-fieldset" disabled={busy}>
