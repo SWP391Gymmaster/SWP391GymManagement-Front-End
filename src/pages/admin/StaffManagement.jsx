@@ -7,6 +7,7 @@ import { PASSWORD_HINT } from '../../services/publicService'
 import { FEATURES } from '../../config/features'
 import { SUBJECTS } from '../../data/seed'
 import { createdUserId } from '../../services/api'
+import './admin-ui.css'
 
 const ROLE_OPTIONS = [
   { value: 'MANAGER', label: 'Manager' },
@@ -220,7 +221,7 @@ export default function StaffManagement() {
   const filteredUsers = users
 
   return (
-    <div className="stack">
+    <div className="stack admin-page admin-staff">
       <div className="section-intro">
         <span className="eyebrow">{t('QUẢN LÝ NHÂN SỰ')}</span>
         <h2>{t('Tạo và quản lý tài khoản nhân viên')}</h2>

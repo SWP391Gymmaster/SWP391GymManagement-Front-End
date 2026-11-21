@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { usePreferences } from '../../preferences/context'
 import { useStore } from '../../store/context'
 import Icon from '../../components/Icon'
+import './admin-ui.css'
 
 const ROLES = [
   ['MANAGER', '🛡️', 'Manager'],
@@ -40,7 +41,7 @@ export default function AdminDashboard({ goTo }) {
   ]
 
   return (
-    <div className="stack">
+    <div className="stack admin-page admin-dashboard">
       <div className="dashboard-banner">
         <div>
           <span className="eyebrow">{t('BẢNG ĐIỀU KHIỂN ADMIN')}</span>

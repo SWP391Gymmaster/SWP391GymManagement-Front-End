@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useStore } from '../../store/context'
 import Modal from '../../components/Modal'
+import './admin-ui.css'
 
 const emptyForm = { userName: '', fullName: '', email: '', phone: '', password: '', role: 'MEMBER' }
 const roles = ['MEMBER', 'COACH', 'RECEPTIONIST', 'MANAGER']
@@ -82,7 +83,7 @@ export default function AdminUsers() {
   }
   function filterChange(key, value) { setFilters(current => ({ ...current, [key]: value })) }
 
-  return <div className="stack">
+  return <div className="stack admin-page admin-users">
     <div className="section-intro"><span className="eyebrow">ADMINISTRATION</span><h2>Quản lý tài khoản</h2><p>Tạo và quản lý hội viên, huấn luyện viên, lễ tân và quản lý trung tâm.</p></div>
     <div className="toolbar"><form className="form-actions" onSubmit={e => { e.preventDefault(); setPage(0); void load(0, filters) }}>
       <input aria-label="Tìm tài khoản" placeholder="Tên, email hoặc số điện thoại" value={filters.q} onChange={e => filterChange('q', e.target.value)} />

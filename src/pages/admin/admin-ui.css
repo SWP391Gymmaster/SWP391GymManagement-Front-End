@@ -1,0 +1,5 @@
+/* Shared refinements for administrator pages. */
+.admin-page { gap: 22px; }
+.admin-page .section-intro { margin-bottom: 2px; }
+.admin-page .section-intro h2 { margin: 7px 0 5px; }
+.admin-page .section-intro p { max-width: 680px; line-height: 1.65; }
