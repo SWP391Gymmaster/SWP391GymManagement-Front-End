@@ -54,3 +54,33 @@
 .admin-users .table .btn-sm, .admin-staff .table .btn-sm { padding: 6px 9px; font-size: 11px; border-radius: 7px; }
 .admin-users > .form-actions { padding: 12px 2px; align-items: center; }
 .admin-users > .form-actions .btn, .admin-staff .pagination .btn { border-radius: 9px; }
+.admin-users > .form-actions { border-top: 1px solid var(--border); }
+.admin-users .toolbar > form input, .admin-users .toolbar > form select { min-height: 41px; border-radius: 9px; }
+.admin-staff .staff-filters label { margin: 0; }
+.admin-staff .staff-filters input, .admin-staff .staff-filters select { min-height: 41px; border-radius: 9px; }
+.admin-staff .pagination { border-top: 1px solid var(--border); margin: 0 22px; padding: 17px 0; }
+.admin-page .alert { border-radius: 11px; }
+
+@media (max-width: 760px) {
+  .admin-dashboard .dashboard-banner { padding: 23px; }
+  .admin-dashboard .stat { min-height: 112px; padding: 16px; }
+  .admin-dashboard .stats { gap: 11px; }
+  .admin-users .toolbar, .admin-staff .toolbar { align-items: stretch; flex-direction: column; }
+  .admin-users .toolbar > .btn, .admin-staff .toolbar > .btn { width: 100%; }
+  .admin-users .toolbar > form { width: 100%; }
+  .admin-users > .form-actions { flex-wrap: wrap; justify-content: center; }
+  .admin-users > .form-actions > .muted { flex-basis: 100%; text-align: center; }
+}
+
+@media (max-width: 480px) {
+  .admin-dashboard .dashboard-banner { padding: 20px; }
+  .admin-dashboard .dashboard-banner h3 { font-size: 20px; }
+  .admin-dashboard .stat strong { font-size: 23px; }
+  .admin-dashboard .admin-grid > .card { padding: 17px; }
+  .admin-users .toolbar > form input, .admin-users .toolbar > form select { flex-basis: 100%; }
+  .admin-staff .pagination { margin-inline: 14px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .admin-dashboard .stat, .admin-dashboard .role-summary-item, .admin-users .table tbody tr, .admin-staff .table tbody tr { transition: none; }
+}
